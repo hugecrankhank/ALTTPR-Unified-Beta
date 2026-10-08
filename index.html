@@ -674,13 +674,21 @@
     try {
       var d = $('items-frame').contentDocument, w = d.defaultView;
       if (!d || !d.body) return 0;
-      var bottom = 0;
+      // Content height + the height of the pinned bottom bar. The bar is
+      // position:fixed, so its *position* just follows the frame's height:
+      // count its size, not where it sits, or the measurement chases itself
+      // (the item tracker shrank on each refit once the bar got taller).
+      var bottom = 0, pinned = 0;
       Array.prototype.forEach.call(d.body.children, function (el) {
-        if (el.tagName === 'SCRIPT' || el.offsetParent === null && w.getComputedStyle(el).position !== 'fixed') return;
+        if (el.tagName === 'SCRIPT') return;
+        var fixed = w.getComputedStyle(el).position === 'fixed';
+        if (el.offsetParent === null && !fixed) return;
         var r = el.getBoundingClientRect();
-        if (r.height) bottom = Math.max(bottom, r.bottom + w.scrollY);
+        if (!r.height) return;
+        if (fixed) pinned = Math.max(pinned, r.height);
+        else bottom = Math.max(bottom, r.bottom + w.scrollY);
       });
-      return Math.ceil(bottom + (parseFloat(w.getComputedStyle(d.body).marginBottom) || 0));
+      return Math.ceil(bottom + pinned + (parseFloat(w.getComputedStyle(d.body).marginBottom) || 0));
     } catch (e) { return 0; }
   }
   function fitItems() {

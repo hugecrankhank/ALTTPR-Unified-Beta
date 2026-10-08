@@ -48,6 +48,32 @@
     lw.style.display = on && tab === 'dw' ? 'none' : '';
     dw.style.display = on && tab === 'lw' ? 'none' : '';
   }
+  // ── item tracker's bottom bar: buttons big enough for a finger ─────────────
+  // Hutch's −/+ (tracker size), ⚙, 📡, ↻ and New Game are 12–18px, and the
+  // phone layout scales his tracker down to fit the width, so they were tiny.
+  // His own tablet view (js/mobile.js) enlarges them the same way. The page's
+  // fitItems counts the bar's height, so it doesn't cover the dungeon row.
+  var ITEMS_CSS = [
+    '.tracker-bottom-bar { height: auto !important; min-height: 46px; padding: 4px 8px !important; }',
+    '.tracker-bottom-bar .size-group { gap: 8px !important; }',
+    '.tracker-bottom-bar .size-btn, #item-settings-btn {',
+    '  width: 46px !important; height: 38px !important; font-size: 24px !important; line-height: 1 !important;',
+    '  padding: 0 !important; border-radius: 6px !important; }',
+    '#item-reconnect-btn { width: 46px !important; height: 38px !important; font-size: 24px !important; line-height: 36px !important; }',
+    '#item-newgame-btn { height: 38px !important; font-size: 16px !important; line-height: 36px !important; padding: 0 14px !important; }',
+    '.connection-status, .mode-label, .race-label { font-size: 13px !important; }'
+  ].join('\n');
+  function styleItems() {
+    var d;
+    try { d = $('items-frame').contentDocument; } catch (e) { return; }
+    if (!d || !d.head) return;
+    var st = d.getElementById('phone-items-css');
+    if (on && !st) {
+      st = d.createElement('style'); st.id = 'phone-items-css'; st.textContent = ITEMS_CSS;
+      d.head.appendChild(st);
+    } else if (!on && st) st.remove();
+  }
+
   function refit() {
     // the page's fitItems / fitMap follow window resizes (tablet.js ignores ours)
     setTimeout(function () { window.dispatchEvent(new Event('resize')); }, 0);
@@ -122,6 +148,7 @@
     if (on) build();
     document.body.classList.toggle('phone', on);
     document.body.classList.remove('phone-menu');
+    styleItems();
     if (on) {
       var saved = null;
       try { saved = localStorage.getItem(TAB_KEY); } catch (e) {}
@@ -183,6 +210,7 @@
   document.addEventListener('DOMContentLoaded', function () {
     apply();
     $('map-frame').addEventListener('load', function () { applyWorld(); refit(); });
+    $('items-frame').addEventListener('load', function () { styleItems(); refit(); });
     var sel = $('layout');
     if (sel) sel.addEventListener('change', function () { setTimeout(apply, 0); });
   });
