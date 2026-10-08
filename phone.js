@@ -94,7 +94,21 @@
       var open = document.body.classList.toggle('phone-menu');
       gear.setAttribute('aria-expanded', String(open));
     });
-    document.querySelector('header').appendChild(gear);
+    var header = document.querySelector('header');
+    header.appendChild(gear);
+    // the randomizer panel sits between the header (which grows when ⚙ opens)
+    // and the tracker toggles, so the toggles stay usable while it's open
+    var syncHeader = function () {
+      var bs = document.body.style;
+      bs.setProperty('--phone-header-h', Math.round(header.getBoundingClientRect().bottom) + 'px');
+      bs.setProperty('--phone-tabs-top', Math.round(bar.getBoundingClientRect().top) + 'px');
+    };
+    if (window.ResizeObserver) {
+      var ro = new ResizeObserver(syncHeader);
+      ro.observe(header); ro.observe($('game-wrap'));
+    }
+    window.addEventListener('resize', syncHeader);
+    syncHeader();
 
     var st = document.createElement('style');
     st.textContent = CSS;
@@ -115,6 +129,32 @@
     } else {
       $('frames').className = '';
       applyWorld();
+      refit();
+    }
+    fullScreen();
+  }
+
+  // ── Home Screen app: use the whole screen ─────────────────────────────────
+  // iOS bug: in a Home Screen web app with a see-through status bar, a page
+  // pinned to the screen edges (position: fixed; inset: 0) comes out shorter
+  // than the screen by the status bar's height (62pt on a 17 Pro Max), which
+  // left an empty band at the bottom. When that happens, stretch the page to
+  // the screen's height. Measured rather than assumed, so it does nothing where
+  // iOS gets it right.
+  function standalone() {
+    return navigator.standalone === true ||
+      !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+  }
+  function fullScreen() {
+    var b = document.body;
+    b.style.removeProperty('height'); b.style.removeProperty('bottom');
+    if (!on || !standalone()) return;
+    var portrait = window.innerHeight >= window.innerWidth;
+    var full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+    var have = b.getBoundingClientRect().height;
+    if (have < full - 2) {
+      b.style.setProperty('bottom', 'auto', 'important');
+      b.style.setProperty('height', full + 'px', 'important');
       refit();
     }
   }
@@ -150,8 +190,11 @@
     'body.phone header h1 { font-size: 14px; }',
     'body.phone #phone-gear { display: inline-block; margin-left: auto; min-width: 44px; min-height: 34px; font-size: 18px; }',
     'body.phone-menu #phone-gear { border-color: var(--accent); }',
-    // the randomizer bar scrolls inside itself rather than pushing the game off screen
-    'body.phone #rando-bar { max-height: 55dvh; overflow-y: auto; }',
+    // the randomizer bar opens as a panel over the game, under the header, and
+    // scrolls inside itself, so it never pushes the tracker off the screen
+    'body.phone #rando-bar { position: fixed; z-index: 40; left: 0; right: 0; top: var(--phone-header-h, 56px);',
+    '  max-height: calc(var(--phone-tabs-top, 60vh) - var(--phone-header-h, 56px)); overflow-y: auto; -webkit-overflow-scrolling: touch;',
+    '  box-shadow: 0 12px 32px rgba(0, 0, 0, .6); }',
     // sideways: game on the left at full height, toggles + panel on the right
     '@media (orientation: landscape) {',
     '  body.phone main { grid-template-columns: auto minmax(0, 1fr) !important; grid-template-rows: minmax(0, 1fr) !important; }',
@@ -169,6 +212,7 @@
     var sel = $('layout');
     if (sel) sel.addEventListener('change', function () { setTimeout(apply, 0); });
   });
-  window.addEventListener('resize', function (e) { if (e.isTrusted !== false) apply(); });
-  window.addEventListener('orientationchange', function () { setTimeout(apply, 300); });
+  window.addEventListener('resize', function (e) { if (e.isTrusted !== false) { apply(); fullScreen(); } });
+  window.addEventListener('orientationchange', function () { setTimeout(function () { apply(); fullScreen(); }, 300); });
+  window.addEventListener('load', function () { setTimeout(fullScreen, 100); });
 })();
