@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- maximum-scale=1: iOS zooms the page in when a text box or menu with text under
+     16px is tapped (the seed box, the selects, the tracker's menus), and a Home Screen
+     app stays zoomed. This stops that zoom; pinch-to-zoom still works on iOS. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>ALTTPR Unified</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#161b22">
