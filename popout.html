@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ALTTPR</title>
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<!--
+  A pop-out window (Desktop layout, see desktop.js and portal.js).
+
+  It shows pieces of the tracker that runs in the main window: the items, the
+  dungeons, the Light World or the Dark World, alone or together. The main
+  window moves the pieces' live elements into the frame below (portal.html),
+  so they track and respond to clicks exactly as they do in the main window.
+
+  This page adds what a window of its own needs: fitting the pieces to
+  whatever size the window is dragged to, plain or green-screen backgrounds
+  for stream capture, and a toolbar that shows while the mouse moves over the
+  window and then fades, so a capture shows only the tracker.
+-->
+<style>
+  :root { --bg: #0e1116; --line: #2a313c; --text: #e6e9ee; --dim: #8b95a3; --accent: #5fbf6f; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: var(--text);
+    font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #pf { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: transparent; }
+  #bar { position: fixed; z-index: 10; top: 34px; left: 4px; transform: translateY(-6px);
+    display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; justify-content: center;
+    width: max-content; max-width: calc(100% - 8px); padding: 6px 8px; border: 1px solid var(--line);
+    border-radius: 8px; background: rgba(22, 27, 34, .96); box-shadow: 0 4px 16px rgba(0,0,0,.5);
+    opacity: 0; pointer-events: none; transition: opacity .18s, transform .18s; }
+  body.open #bar, body.pinned #bar { opacity: 1; pointer-events: auto; transform: none; }
+  body.pinned #bar { top: 4px; }
+  /* A small handle in the corner shows while the mouse moves; pointing at it
+     opens the toolbar. (A toolbar that opened on any movement covered the
+     tracker's own buttons.) */
+  #handle { position: fixed; z-index: 11; top: 4px; left: 4px; width: 26px; height: 26px; padding: 0;
+    display: flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 6px;
+    background: rgba(22, 27, 34, .92); color: var(--text); font-size: 14px; cursor: pointer;
+    opacity: 0; pointer-events: none; transition: opacity .18s; }
+  body.show #handle, body.open #handle { opacity: 1; pointer-events: auto; }
+  body.pinned #handle { display: none; }
+  #bar label { display: flex; align-items: center; gap: 4px; color: var(--dim); white-space: nowrap; }
+  #bar label.piece { color: var(--text); }
+  #bar label.piece.elsewhere { color: var(--dim); }
+  #bar select, #bar button { background: #0d1117; color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 3px 7px; font: inherit; cursor: pointer; }
+  #bar button:hover, #bar select:hover { border-color: #3d4654; }
+  #bar button.on { border-color: var(--accent); color: var(--accent); }
+  #bar .sep { width: 1px; align-self: stretch; background: var(--line); }
+  #bar [hidden] { display: none !important; }
+  #msg { position: fixed; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center;
+    padding: 24px; text-align: center; color: var(--dim); background: var(--bg); }
+  #msg[hidden] { display: none; }
+</style>
+</head>
+<body>
+<iframe id="pf" title="Tracker" allowtransparency="true"></iframe>
+<div id="msg">Connecting to the game window…</div>
+<button id="handle" type="button" title="Window options" aria-label="Window options">&#9776;</button>
+<div id="bar" role="toolbar" aria-label="Window options">
+  <span id="o-pieces" style="display:contents"></span>
+  <span class="sep"></span>
+  <label id="l-arrange" title="How the two worlds sit">Arrange
+    <select id="o-arrange">
+      <option value="auto">Auto</option>
+      <option value="side">Side by side</option>
+      <option value="stack">Stacked</option>
+    </select>
+  </label>
+  <label id="l-rows" title="How many rows the items wrap onto">Item rows
+    <select id="o-rows">
+      <option value="auto">Auto</option>
+      <option value="1">1</option>
+      <option value="2">2</option>
+      <option value="3">3</option>
+      <option value="4">4</option>
+    </select>
+  </label>
+  <label title="Background behind the tracker. A solid green, blue or magenta can be keyed out in OBS with a Chroma Key filter.">Background
+    <select id="o-bg">
+      <option value="">Tracker's own</option>
+      <option value="#000000">Black</option>
+      <option value="#00b140">Green screen</option>
+      <option value="#0047bb">Blue screen</option>
+      <option value="#ff00ff">Magenta</option>
+    </select>
+  </label>
+  <label title="Grow or shrink the tracker to fill the window"><input type="checkbox" id="o-fit"> Fit</label>
+  <label id="l-clean" title="Hide the tracker's menu bars in this window"><input type="checkbox" id="o-clean"> Clean</label>
+  <button id="b-settings" type="button" title="The tracker's settings">&#9881;</button>
+  <button id="b-pin" type="button" title="Keep this toolbar showing">&#128204;</button>
+  <button id="b-dock" type="button" title="Put everything in this window back in the main window">Dock</button>
+</div>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var id = new URLSearchParams(location.search).get('id') || 'items';
+  var PREF_KEY = 'unified-kara-pop-' + id;
+  var GEOM_KEY = 'unified-kara-geom-' + id;
+  var pf = $('pf');
+  var info = null;          // what the main window says this window holds
+
+  // ── options, remembered per window ────────────────────────────────────────
+  var prefs = { arrange: 'auto', rows: 'auto', bg: '', fit: true, clean: false, pinned: false };
+  try { Object.assign(prefs, JSON.parse(localStorage.getItem(PREF_KEY) || '{}')); } catch (e) {}
+  function savePrefs() { try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch (e) {} }
+  $('o-arrange').value = prefs.arrange;
+  $('o-rows').value = prefs.rows;
+  $('o-bg').value = prefs.bg;
+  $('o-fit').checked = !!prefs.fit;
+  $('o-clean').checked = !!prefs.clean;
+  document.body.classList.toggle('pinned', !!prefs.pinned);
+  $('b-pin').classList.toggle('on', !!prefs.pinned);
+  function bind(el, key, prop) {
+    $(el).addEventListener('change', function () {
+      prefs[key] = this[prop || 'value']; savePrefs(); restyle(); fitSoon();
+    });
+  }
+  bind('o-arrange', 'arrange'); bind('o-rows', 'rows'); bind('o-bg', 'bg');
+  bind('o-fit', 'fit', 'checked'); bind('o-clean', 'clean', 'checked');
+  $('b-pin').addEventListener('click', function () {
+    prefs.pinned = !prefs.pinned; savePrefs();
+    document.body.classList.toggle('pinned', prefs.pinned);
+    this.classList.toggle('on', prefs.pinned);
+  });
+
+  // ── the handle shows while the mouse moves; the toolbar opens from it ─────
+  var hideTimer = null, closeTimer = null;
+  function reveal() {
+    document.body.classList.add('show');
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(function () {
+      if ($('handle').matches(':hover')) reveal(); else document.body.classList.remove('show');
+    }, 1800);
+  }
+  function openBar() { clearTimeout(closeTimer); document.body.classList.add('open'); }
+  function closeSoon() {
+    clearTimeout(closeTimer);
+    closeTimer = setTimeout(function () {
+      // a dropdown that's open counts as still using the toolbar
+      if ($('bar').matches(':hover') || $('handle').matches(':hover') || $('bar').contains(document.activeElement) && document.activeElement.tagName === 'SELECT') return closeSoon();
+      document.body.classList.remove('open');
+    }, 500);
+  }
+  document.addEventListener('mousemove', reveal);
+  $('handle').addEventListener('mouseenter', openBar);
+  $('handle').addEventListener('click', function () { if (document.body.classList.contains('open')) document.body.classList.remove('open'); else openBar(); });
+  $('handle').addEventListener('mouseleave', closeSoon);
+  $('bar').addEventListener('mouseenter', openBar);
+  $('bar').addEventListener('mouseleave', closeSoon);
+  document.addEventListener('mouseleave', function () {
+    clearTimeout(hideTimer); document.body.classList.remove('show'); closeSoon();
+  });
+
+  // ── the main window ───────────────────────────────────────────────────────
+  function main() { try { var o = window.opener; return o && !o.closed ? o : null; } catch (e) { return null; } }
+  function api() { var o = main(); try { return o && o.UnifiedDesktop; } catch (e) { return null; } }
+  function message(text) { var m = $('msg'); m.hidden = !text; if (text) m.textContent = text; }
+
+  // Once a second: what does this window hold? Also how a reload of the main
+  // window is noticed: it brings a new tracker, so the frame starts afresh.
+  var key = null, lost = 0;
+  function tick() {
+    var a = api(), r;
+    if (!a) {
+      lost++;
+      if (!main()) message('The game window was closed. Open ALTTPR Unified Desktop (Kara) again and pop pieces out from there.');
+      else if (lost > 3) message('Waiting for the game window…');
+      return;
+    }
+    try { r = a.claim(id, window); } catch (e) { return; }
+    if (r === null) { window.close(); return; }      // nothing here any more
+    if (!r) return;
+    lost = 0;
+    if (r.key !== key) {
+      if (key !== null) reset();                       // the main window reloaded
+      key = r.key;
+    }
+    changed(r);
+  }
+  pf.addEventListener('load', function () {
+    var d = pfDoc();
+    if (!d) return;
+    d.addEventListener('mousemove', reveal);
+    message('');
+    restyle();
+    var a = api(); if (a) { try { a.sync(); } catch (e) {} }
+    fitSoon();
+  });
+  pf.src = 'portal.html';
+  tick();
+  setInterval(tick, 1000);
+
+  function pfDoc() {
+    try {
+      var d = pf.contentDocument;
+      return d && d.readyState === 'complete' && d.getElementById('p-root') ? d : null;
+    } catch (e) { return null; }
+  }
+  function reset() { pf.src = 'portal.html?' + Date.now(); }
+
+  // Going away (closed or reloaded): hand the pieces back while this page
+  // still exists. If it was a reload, the new page claims them again.
+  window.addEventListener('pagehide', function () {
+    var a = api(); if (a) { try { a.leaving(id, window); } catch (e) {} }
+  });
+
+  $('b-dock').addEventListener('click', function () {
+    var a = api(); if (a) { try { a.dockWindow(id); } catch (e) {} }
+  });
+  $('b-settings').addEventListener('click', function () {
+    var a = api(); if (a) { try { a.openSettings(id); } catch (e) {} }
+  });
+
+  // What the main window says about this window: which pieces are here,
+  // which could be added.
+  function changed(r) {
+    info = r;
+    var here = r.pieces.filter(function (p) { return p.here; });
+    document.title = 'ALTTPR ' + (here.map(function (p) { return p.label; }).join(' + ') || 'Tracker');
+    var box = $('o-pieces'), sig = JSON.stringify(r.pieces) + r.bars;
+    if (box.__sig === sig) return;
+    {
+      box.__sig = sig;
+      box.innerHTML = '';
+      r.pieces.forEach(function (p) {
+        var l = document.createElement('label'), c = document.createElement('input');
+        l.className = 'piece' + (p.elsewhere ? ' elsewhere' : '');
+        l.title = p.here ? 'Uncheck to put ' + p.label + ' back in the main window'
+                : p.elsewhere ? p.label + ' is in another window. Check to move it here.'
+                : 'Check to show ' + p.label + ' in this window too';
+        c.type = 'checkbox'; c.checked = p.here;
+        c.addEventListener('change', function () {
+          var a = api(); if (!a) return;
+          try { a.move(p.name, this.checked ? id : 'dock'); } catch (e) {}
+        });
+        l.appendChild(c); l.appendChild(document.createTextNode(' ' + p.label));
+        box.appendChild(l);
+      });
+    }
+    var worlds = here.filter(function (p) { return p.name === 'light' || p.name === 'dark'; }).length;
+    $('l-arrange').hidden = worlds < 2;
+    $('l-rows').hidden = !here.some(function (p) { return p.name === 'items'; });
+    $('l-clean').hidden = !r.bars;
+    restyle();
+    fitSoon();
+  }
+
+  // ── looks ─────────────────────────────────────────────────────────────────
+  function restyle() {
+    var d = pfDoc();
+    if (!d) return;
+    var css = '', bg = prefs.bg;
+    if (bg) {
+      css += 'html,body,#p-root{background:' + bg + '!important;background-image:none!important}' +
+             '#p-fit [data-u-mirror="maps-outer"]{background:transparent!important}';
+    }
+    if (prefs.clean) {
+      // the map's settings stay reachable from the toolbar's ⚙, which needs
+      // its menu: keep that and hide the rest of the bars
+      css += '#p-bot,#p-top>*:not(#topbar){display:none!important}' +
+             '#p-top #topbar{height:0!important;min-height:0!important;padding:0!important;border:0!important;' +
+             'overflow:visible!important;background:transparent!important}' +
+             '#p-top #topbar>*:not(#settings-wrap){display:none!important}' +
+             '#p-top #settings-btn{display:none!important}' +
+             '#p-top #settings-wrap{position:fixed!important;top:4px!important;right:4px!important;z-index:50}';
+    }
+    var st = d.getElementById('u-shell-css');
+    if (!st) { st = d.createElement('style'); st.id = 'u-shell-css'; d.head.appendChild(st); }
+    if (st.parentNode.lastChild !== st) st.parentNode.appendChild(st);   // stays last
+    st.textContent = css;
+    document.body.style.background = bg || '#000';
+    var root = d.getElementById('p-root');
+    if (root) root.setAttribute('data-arr', prefs.arrange);
+  }
+
+  // ── fitting ───────────────────────────────────────────────────────────────
+  // Items and dungeons: laid out at their natural size, then scaled as one to
+  // fill the window. Item rows: as chosen, or whichever count makes them
+  // biggest. Maps: sized directly (sharper than scaling), side by side or
+  // stacked, whichever is bigger (or as chosen).
+  function fit() {
+    var d = pfDoc();
+    if (!d) return;
+    var stage = d.getElementById('p-stage'), box = d.getElementById('p-fit');
+    if (!stage || !box) return;
+    var W = stage.clientWidth, H = stage.clientHeight;
+    if (!W || !H || !box.children.length) return;
+    box.style.transform = '';
+    var maps = box.querySelectorAll('#lw, #dw').length;
+    if (maps) {
+      var gap = 12, size = 512, vertical = prefs.arrange === 'stack';
+      if (maps === 2 && prefs.arrange === 'auto') vertical = Math.min(W, (H - gap) / 2) > Math.min((W - gap) / 2, H);
+      if (prefs.fit) {
+        if (maps === 1) size = Math.min(W, H);
+        else size = vertical ? Math.min(W, (H - gap) / 2) : Math.min((W - gap) / 2, H);
+      }
+      size = Math.max(60, Math.floor(size));
+      d.getElementById('p-root').setAttribute('data-arr', maps === 2 && vertical ? 'stack' : 'side');
+      box.style.setProperty('--psize', size + 'px');
+      // markers shrink with the map below full size, as Hutch's zoom does
+      box.style.setProperty('--mk', size < 512 ? (size / 512).toFixed(3) : '1');
+      var bw = box.offsetWidth, bh = box.offsetHeight;
+      box.style.transform = 'translate(' + Math.round((W - bw) / 2) + 'px,' + Math.round((H - bh) / 2) + 'px)';
+      return;
+    }
+    var trow = box.querySelector('#mob-top .mob-items');
+    function measure() { return { w: box.offsetWidth, h: box.offsetHeight }; }
+    function scaleFor(n) { return Math.min(W / n.w, H / n.h); }
+    var best = null;
+    if (trow) {
+      box.style.setProperty('--prow', 'none');
+      var full = trow.scrollWidth;
+      var tries = prefs.rows === 'auto' ? [1, 2, 3, 4] : [parseInt(prefs.rows, 10) || 1];
+      tries.forEach(function (rows) {
+        box.style.setProperty('--prow', rows > 1 ? Math.ceil(full / rows + 48) + 'px' : 'none');
+        var n = measure(), k = scaleFor(n);
+        if (!best || k > best.k + 0.01) best = { rows: rows, k: k };
+      });
+      box.style.setProperty('--prow', best.rows > 1 ? Math.ceil(full / best.rows + 48) + 'px' : 'none');
+    }
+    var n = measure();
+    var k = prefs.fit ? scaleFor(n) : 1;
+    k = Math.max(0.2, Math.min(8, k));
+    box.style.transform = 'translate(' + Math.round((W - n.w * k) / 2) + 'px,' + Math.round((H - n.h * k) / 2) + 'px) scale(' + k + ')';
+  }
+  var fitTimer = null;
+  function fitSoon() { clearTimeout(fitTimer); fitTimer = setTimeout(fit, 40); }
+  window.addEventListener('resize', fitSoon);
+  // The pieces change size on their own now and then (an item tracker
+  // setting, entrance markers, the bars wrapping): refit when they do.
+  var lastSig = '';
+  setInterval(function () {
+    var d = pfDoc(); if (!d) return;
+    var box = d.getElementById('p-fit'), stage = d.getElementById('p-stage');
+    if (!box || !stage) return;
+    var sig = [box.offsetWidth, box.offsetHeight, stage.clientWidth, stage.clientHeight, box.children.length].join(',');
+    if (sig !== lastSig) { lastSig = sig; fit(); lastSig = [box.offsetWidth, box.offsetHeight, stage.clientWidth, stage.clientHeight, box.children.length].join(','); }
+  }, 700);
+
+  // ── remember where this window is ─────────────────────────────────────────
+  var lastGeom = '';
+  setInterval(function () {
+    var g = { x: window.screenX, y: window.screenY, w: window.innerWidth, h: window.innerHeight };
+    var s = JSON.stringify(g);
+    if (s !== lastGeom && g.w > 0 && g.h > 0) { lastGeom = s; try { localStorage.setItem(GEOM_KEY, s); } catch (e) {} }
+  }, 1000);
+
+  window.UnifiedPortalHost = {
+    doc: pfDoc,
+    reset: reset,
+    changed: changed,
+    refit: fitSoon,
+  };
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,2348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="../bridge/sni-shim.js"></script> <!-- unified-app: routes SNI WebSocket to built-in emulator -->
+<meta charset="UTF-8">
+<title>ALTTP Broadcast View</title>
+<script>
+// Set data-bg (and image CSS var) as early as possible so the chosen bg
+// doesn't flash before the main script runs.
+(function(){
+  try {
+    var p = new URLSearchParams(window.location.search);
+    var bg = p.get('bg') || localStorage.getItem('alttp-broadcast-bg') || 'black';
+    var bgImage = localStorage.getItem('alttp-broadcast-bg-image') || '';
+    if (bg === 'image' && !bgImage) bg = 'black';
+    document.documentElement.setAttribute('data-bg', bg);
+    if (bg === 'image' && bgImage) {
+      document.documentElement.style.setProperty('--bg-image', 'url("' + bgImage + '")');
+    }
+  } catch(e) {}
+})();
+</script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: #000;
+  width: 100%; height: 100%;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+
+/* Background themes */
+[data-bg="grey"]        body, body[data-bg="grey"]        { background: #333 !important; }
+[data-bg="white"]       body, body[data-bg="white"]       { background: #fff !important; }
+[data-bg="transparent"] body, body[data-bg="transparent"] { background: transparent !important; }
+
+/* Transparent mode — push content down so it doesn't sit under macOS traffic
+   lights / Windows caption buttons, and provide a drag strip up top. */
+html[data-bg="transparent"] body {
+  padding-top: 30px;
+}
+html[data-bg="transparent"] body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 140px;
+  height: 30px;
+  -webkit-app-region: drag;
+  z-index: 9999;
+}
+html[data-bg="transparent"] .bbg-bar {
+  -webkit-app-region: drag;
+  background: rgba(0,0,0,0.6) !important;
+  border-top-color: rgba(255,255,255,0.2) !important;
+}
+html[data-bg="transparent"] .bbg-bar * {
+  -webkit-app-region: no-drag;
+}
+
+.broadcast-container {
+  background: inherit;
+  padding: 8px 6px 2px 8px;
+  display: flex; flex-direction: column; gap: 2px;
+  flex: 1; overflow: hidden;
+}
+
+/* Image-mode background — driven by --bg-image set from JS */
+[data-bg="image"] body, body[data-bg="image"] {
+  background-color: #000 !important;
+  background-image: var(--bg-image, none) !important;
+  background-size: cover !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+}
+.bcast-row { display: flex; flex-direction: row; gap: 2px; align-items: center; }
+
+/* Item slots ------------------------------------------------------------- */
+.bslot {
+  width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  position: relative; flex-shrink: 0;
+}
+.bslot img { width: 36px; height: 36px; image-rendering: pixelated; image-rendering: crisp-edges; position: relative; z-index: 2; }
+.bslot::before {
+  content: '';
+  position: absolute; inset: 2px;
+  border-radius: 4px;
+  background: linear-gradient(to bottom left, var(--item-fill-color, #2ecc71), var(--item-fill-color2, #b675ff));
+  opacity: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.bslot.filled::before { opacity: 0.7; }
+
+/* Effects: applied only on the transition INTO the filled state.
+   "Starburst" — uniform fade-in that reads as a soft burst of color.
+   "No Effect" — radial mask that closes from the edges inward.
+   Both intentionally slow so the change is dramatic on a stream. */
+.bslot.filled.fx-falling::before { animation: fx-falling 0.6s ease-out; }
+.bslot.filled.fx-fade::before    { animation: fx-fade    0.9s ease-out; }
+.bslot.filled.fx-edges::before   { animation: fx-edges   1.0s ease-in;  }
+
+@keyframes fx-falling {
+  from { transform: translateY(-100%); opacity: 0.7; }
+  to   { transform: translateY(0);     opacity: 0.7; }
+}
+@keyframes fx-fade {
+  from { opacity: 0; }
+  to   { opacity: 0.7; }
+}
+
+/* fx-edges: mask shrinks from edges inward.
+   Driven by a registered custom property so the percentage animates smoothly. */
+@property --edges-reveal {
+  syntax: '<percentage>';
+  initial-value: 0%;
+  inherits: false;
+}
+.bslot.filled.fx-edges::before,
+.bslot-bottles.filled.fx-edges::before,
+.bright-slot.bslot-icon.filled.fx-edges::before,
+.bcombo-img.filled.fx-edges::before {
+  -webkit-mask-image: radial-gradient(circle at 50% 50%,
+    transparent calc(var(--edges-reveal, 0%) - 0.5%),
+    #000        var(--edges-reveal, 0%));
+          mask-image: radial-gradient(circle at 50% 50%,
+    transparent calc(var(--edges-reveal, 0%) - 0.5%),
+    #000        var(--edges-reveal, 0%));
+}
+@keyframes fx-edges {
+  from { --edges-reveal: 80%; opacity: 0.7; }
+  to   { --edges-reveal: 0%;  opacity: 0.7; }
+}
+
+.bmed-label {
+  position: absolute; bottom: 1px; right: 1px;
+  font-size: 10px; font-weight: bold; color: #fff; text-transform: uppercase;
+  text-shadow: 0 0 2px #000, 0 0 2px #000;
+  z-index: 3;
+}
+
+.bslot-bottles {
+  width: 40px; height: 40px;
+  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+  gap: 1px; flex-shrink: 0;
+  position: relative;
+}
+.bslot-bottles::before {
+  content: '';
+  position: absolute; inset: 1px;
+  border-radius: 4px;
+  background: linear-gradient(to bottom left, var(--item-fill-color, #2ecc71), var(--item-fill-color2, #b675ff));
+  opacity: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.bslot-bottles.filled::before { opacity: 0.7; }
+.bslot-bottles.filled.fx-falling::before { animation: fx-falling 0.6s ease-out; }
+.bslot-bottles.filled.fx-fade::before    { animation: fx-fade    0.9s ease-out; }
+.bslot-bottles.filled.fx-edges::before   { animation: fx-edges   1.0s ease-in;  }
+.bminibottle { display: flex; align-items: center; justify-content: center; position: relative; z-index: 2; }
+.bminibottle img { width: 18px; height: 18px; image-rendering: pixelated; }
+
+/* Combined dual-item slot (e.g. Powder/Mushroom, Flute/Shovel)
+   Upper-left item / lower-right item, diagonal fill per sub-item. */
+.bslot-combo {
+  width: 40px; height: 40px;
+  position: relative; flex-shrink: 0;
+}
+/* First child = upper-left */
+.bcombo-img:first-child {
+  position: absolute; top: 1px; left: 1px;
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 2;
+}
+/* Second child = lower-right */
+.bcombo-img:last-child {
+  position: absolute; bottom: 1px; right: 1px;
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 2;
+}
+.bcombo-img img { width: 20px; height: 20px; image-rendering: pixelated; image-rendering: crisp-edges; position: relative; z-index: 2; }
+
+/* Per-item triangular fill via ::before on each .bcombo-img */
+.bcombo-img::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(to bottom left, var(--item-fill-color, #2ecc71), var(--item-fill-color2, #b675ff));
+  opacity: 0;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: 3px;
+}
+/* Upper-left triangle: top-left → top-right → bottom-left */
+.bcombo-img:first-child::before  { clip-path: polygon(0% 0%, 100% 0%, 0% 100%); }
+/* Lower-right triangle: top-right → bottom-right → bottom-left */
+.bcombo-img:last-child::before   { clip-path: polygon(100% 0%, 100% 100%, 0% 100%); }
+
+.bcombo-img.filled::before { opacity: 0.7; }
+.bcombo-img.filled.fx-falling::before { animation: fx-falling 0.6s ease-out; }
+.bcombo-img.filled.fx-fade::before    { animation: fx-fade    0.9s ease-out; }
+.bcombo-img.filled.fx-edges::before   { animation: fx-edges   1.0s ease-in;  }
+
+/* Go Mode button */
+.bgo-btn {
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 2px solid currentColor;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: bold; font-family: Arial, sans-serif;
+  color: #666; background: transparent;
+  transition: background 0.15s, color 0.15s;
+}
+.bgo-btn.on      { background: #2ecc71; color: #000; }
+.bgo-btn.feeling { background: #eee600; color: #000; }
+
+/* Right-column: agahnim / gomode / stats — wider so they line up vertically */
+.bright-slot {
+  width: 82px; height: 40px;
+  display: flex; align-items: center; justify-content: flex-start;
+  position: relative; flex-shrink: 0;
+  padding-left: 6px;
+}
+.bright-slot.bslot-icon img { width: 36px; height: 36px; image-rendering: pixelated; position: relative; z-index: 2; }
+.bright-slot.bslot-icon::before {
+  content: '';
+  position: absolute; left: 6px; top: 2px; width: 36px; bottom: 2px;
+  border-radius: 4px;
+  background: linear-gradient(to bottom left, var(--item-fill-color, #2ecc71), var(--item-fill-color2, #b675ff));
+  opacity: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.bright-slot.bslot-icon.filled::before { opacity: 0.7; }
+.bright-slot.bslot-icon.filled.fx-falling::before { animation: fx-falling 0.6s ease-out; }
+.bright-slot.bslot-icon.filled.fx-fade::before    { animation: fx-fade    0.9s ease-out; }
+.bright-slot.bslot-icon.filled.fx-edges::before   { animation: fx-edges   1.0s ease-in;  }
+
+/* Go Mode (right-column) */
+.bgo-btn {
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 2px solid currentColor;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: bold; font-family: Arial, sans-serif;
+  color: #666; background: transparent;
+  transition: background 0.15s, color 0.15s;
+}
+.bgo-btn.on      { color: #2ecc71; background: #2ecc71; color: #000; }
+.bgo-btn.feeling { color: #eee600; background: #eee600; color: #000; }
+
+/* Stats — fixed width labels so numbers align */
+.bstats-slot {
+  width: 82px; height: 40px;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
+  gap: 1px; padding-left: 4px;
+  flex-shrink: 0;
+}
+.bstat-row { display: flex; align-items: center; gap: 6px; font-family: Arial, sans-serif; font-size: 10px; font-weight: bold; }
+.bstat-label { color: #888; width: 32px; flex-shrink: 0; }
+.bstat-check { color: #4dff88; }
+.bstat-death { color: #ff4444; }
+.bstat-bonk  { color: #ffa500; }
+
+#gomode-spark-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 10;
+  display: none;
+}
+#gomode-spark-canvas.active { display: block; }
+
+/* Dungeon slot — item-tracker style ------------------------------------- */
+.bdng-slot {
+  background: #111; border: 1px solid #2a2a2a; border-radius: 4px;
+  padding: 3px 2px;
+  display: flex; flex-direction: column;
+  align-items: center; gap: 2px; flex-shrink: 0;
+  width: 46px;
+  transition: background 0.3s, border-color 0.3s;
+}
+/* "Dungeon Box" toggle — strip the default container so dungeons look like
+   the items around them. Defined BEFORE the state classes so chests-done /
+   prize-done still take effect (their tints override "no box"). */
+.bdng-slot.no-box {
+  background: transparent;
+  border-color: transparent;
+}
+.bdng-slot.chests-done {
+  background: color-mix(in srgb, var(--chests-color, #5a8eff) 35%, #000);
+  border-color: var(--chests-color, #5a8eff);
+}
+.bdng-slot.prize-done {
+  background: color-mix(in srgb, var(--complete-color, #4dff88) 35%, #000);
+  border-color: var(--complete-color, #4dff88);
+}
+/* Boss defeated (prize obtained) but chests aren't done — green outline only
+   to match the "complete" colour, no background tint. Applied to every
+   dungeon (used to be pendant-only). */
+.bdng-slot.prize-only  { border-color: var(--complete-color, #4dff88); }
+
+/* Classic view dungeon slot — compact: just the label + prize.
+   Big-key / map / compass / small-key / chests rows are all hidden. */
+.bdng-slot.classic {
+  width: 40px;
+  padding: 2px;
+  gap: 1px;
+  justify-content: center;
+}
+.bdng-slot.classic .bdng-icons,
+.bdng-slot.classic .bdng-keys-row,
+.bdng-slot.classic .bdng-chests-row,
+.bdng-slot.classic .bdng-bigkey-top { display: none; }
+.bdng-slot.classic .bdng-name { font-size: 10px; line-height: 1.1; }
+.bdng-slot.classic .bdng-prize { width: 18px; height: 18px; }
+.bdng-slot.classic .bdng-top { gap: 0; }
+
+/* Label centered on its own row */
+.bdng-name {
+  font-family: Arial, sans-serif; font-size: 10px; font-weight: bold;
+  color: #ccc; line-height: 1;
+  text-align: center;
+  width: 100%;
+}
+.bdng-name.here::after {
+  content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 3px;
+  border-radius: 50%; background: #4dff88; box-shadow: 0 0 4px #4dff88;
+  vertical-align: middle;
+}
+
+/* All icon/value rows are centered horizontally */
+.bdng-top,
+.bdng-icons,
+.bdng-row {
+  display: flex; flex-direction: row; align-items: center;
+  justify-content: center; gap: 2px;
+}
+
+/* Prize + big key row (under the label) */
+.bdng-top img {
+  width: 12px; height: 12px;
+  image-rendering: pixelated;
+}
+
+/* Map + compass row */
+.bdng-icons img {
+  width: 12px; height: 12px;
+  image-rendering: pixelated;
+}
+
+/* Small keys / chests rows */
+.bdng-row img {
+  width: 10px; height: 10px;
+  image-rendering: pixelated;
+}
+.bdng-row span {
+  font-family: Arial, sans-serif; font-size: 8px; color: #ccc;
+  line-height: 1;
+}
+.bdng-row .bdng-keys.full   { color: #2ecc71; }
+.bdng-row .bdng-chests.full { color: #2ecc71; }
+
+/* Bottom bar with Settings ---------------------------------------------- */
+.bbg-bar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 8px;
+  background: #111;
+  border-top: 1px solid #222;
+  flex-shrink: 0;
+  position: relative; z-index: 30000;
+  width: 100%;
+}
+.bsettings-btn {
+  font-family: Arial, sans-serif; font-size: 10px; color: #ccc;
+  background: #1a1a1a; border: 1px solid #444; border-radius: 3px;
+  padding: 2px 8px; cursor: pointer; outline: none;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.bsettings-btn:hover { border-color: #4dff88; color: #fff; }
+.bsettings-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.bsettings-btn:disabled:hover { border-color: inherit; color: inherit; }
+.bsize-btn { padding: 2px 5px; min-width: 20px; justify-content: center; font-size: 13px; line-height: 1; }
+
+/* ── Item Animation overlay ─────────────────────────────────────────────── */
+#item-anim-overlay {
+  position: fixed; top: 0; left: 0; right: 0;
+  /* bottom is set dynamically in JS to stop above the bbg-bar */
+  bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 20000;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+#item-anim-overlay.anim-visible {
+  opacity: 1;
+  pointer-events: none;
+}
+#item-anim-canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  z-index: 1;
+}
+/* Image background layer — a real <img> so animated GIFs animate (a canvas
+   would only ever show the first frame). Shown only when bg = image. */
+#item-anim-bg-img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  z-index: 1;
+  display: none;
+}
+#item-anim-img {
+  width: 40px; height: 40px;
+  image-rendering: pixelated; image-rendering: crisp-edges;
+  transform-origin: center center;
+  position: relative; z-index: 2;
+}
+#item-anim-label {
+  position: absolute; bottom: 18px; left: 0; right: 0;
+  text-align: center;
+  font-family: Arial, sans-serif; font-size: 22px; font-weight: bold;
+  color: #fff;
+  text-shadow: 0 0 12px rgba(0,0,0,0.9), 1px 1px 3px #000, -1px -1px 3px #000;
+  letter-spacing: 1px;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+#item-anim-overlay.anim-visible #item-anim-label.label-show { opacity: 1; }
+
+/* Phase 1: spin in from tiny → window height over 1.4s */
+@keyframes item-spin-grow {
+  0%   { transform: scale(0.05) rotate(0deg);   opacity: 0; }
+  15%  { opacity: 1; }
+  100% { transform: scale(var(--anim-peak-scale)) rotate(720deg); opacity: 1; }
+}
+/* Phase 2: shrink back to slot-size over 0.8s */
+@keyframes item-shrink {
+  0%   { transform: scale(var(--anim-peak-scale)) rotate(720deg); }
+  100% { transform: scale(1) rotate(720deg); }
+}
+/* Phase 3: slot bounce — the slot img does a quick pop when item settles */
+@keyframes slot-bounce {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.35); }
+  70%  { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+
+#item-anim-img.phase-grow   { animation: item-spin-grow 1.4s cubic-bezier(0.2,0,0.4,1) forwards; }
+#item-anim-img.phase-shrink { animation: item-shrink    0.8s cubic-bezier(0.4,0,0.2,1) forwards; }
+
+.slot-bounce { animation: slot-bounce 0.35s ease-out; }
+
+/* Settings modal -------------------------------------------------------- */
+#settings-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 10000;
+}
+#settings-overlay.hidden { display: none; }
+.settings-modal {
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 6px;
+  width: 320px; max-width: 92%;
+  max-height: 90%;
+  overflow-y: auto;
+  font-family: Arial, sans-serif; color: #ddd;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+}
+.settings-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; border-bottom: 1px solid #333;
+}
+.settings-header h3 { font-size: 13px; color: #fff; margin: 0; }
+.settings-close {
+  background: transparent; border: none; color: #888; font-size: 18px;
+  cursor: pointer; line-height: 1; padding: 0 4px;
+}
+.settings-close:hover { color: #fff; }
+.settings-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 12px; }
+.settings-section { display: flex; flex-direction: column; gap: 6px; }
+.settings-section > h4 {
+  font-size: 11px; color: #4dff88; text-transform: uppercase;
+  letter-spacing: 0.5px; font-weight: bold; margin: 0;
+}
+.settings-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px;
+}
+.settings-row label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.settings-row input[type="radio"], .settings-row input[type="checkbox"] {
+  margin: 0; cursor: pointer;
+}
+.settings-radios {
+  display: flex; flex-wrap: wrap; gap: 8px;
+}
+.settings-sub {
+  margin-left: 18px; padding-left: 10px;
+  border-left: 1px solid #333;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.settings-sub.disabled { opacity: 0.4; pointer-events: none; }
+.settings-sub > .sub-label {
+  font-size: 10px; color: #888; text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.settings-color-picker {
+  width: 28px; height: 18px; padding: 0; border: 1px solid #444;
+  background: transparent; cursor: pointer;
+}
+.settings-select {
+  font-family: Arial, sans-serif; font-size: 11px; color: #ccc;
+  background: #2a2a2a; border: 1px solid #444; border-radius: 3px;
+  padding: 2px 6px; cursor: pointer; outline: none;
+}
+
+</style>
+</head>
+<body>
+<div class="broadcast-container">
+  <div class="bcast-row" id="row1"></div>
+  <div class="bcast-row" id="row2"></div>
+  <div class="bcast-row" id="row3"></div>
+  <div class="bcast-row" id="row4"></div>
+</div>
+<div class="bbg-bar">
+  <button class="bsettings-btn bsize-btn" onclick="bcastSizeDown()">−</button>
+  <button class="bsettings-btn bsize-btn" onclick="bcastSizeUp()">+</button>
+  <button class="bsettings-btn" onclick="openSettingsPopout()">⚙ Settings</button>
+  <button class="bsettings-btn" id="item-sounds-btn" onclick="openItemSounds()">♪ Item Sounds</button>
+</div>
+
+<canvas id="gomode-spark-canvas"></canvas>
+
+<!-- Item animation overlay -->
+<div id="item-anim-overlay">
+  <canvas id="item-anim-canvas"></canvas>
+  <img id="item-anim-bg-img" src="" alt="">
+  <img id="item-anim-img" src="" alt="">
+  <div id="item-anim-label"></div>
+</div>
+
+<script src="js/bcast-settings-core.js"></script>
+<script>
+// ── Settings storage ─────────────────────────────────────────────────────
+// SETTINGS schema, FILL_COLORS, FILL_COLORS_DARK, DUNGEON_PRESETS,
+// loadSettings() and saveSettings() live in js/bcast-settings-core.js (shared).
+
+function applyFillVariable() {
+  var color = SETTINGS.fillColor === 'custom' ? SETTINGS.fillCustom : (FILL_COLORS[SETTINGS.fillColor] || FILL_COLORS.green);
+  var color2 = SETTINGS.fillColor2 === 'custom' ? SETTINGS.fillCustom2 : (FILL_COLORS_DARK[SETTINGS.fillColor2] || FILL_COLORS_DARK.purple);
+  document.documentElement.style.setProperty('--item-fill-color', color);
+  document.documentElement.style.setProperty('--item-fill-color2', color2);
+}
+
+// Re-evaluates the small-key row's display state for one dungeon. Combines the
+// per-dungeon "this dungeon has no keys" check (which hides via visibility so
+// rows stay aligned) with the user-level "Small Keys" toggle (which hides via
+// display so the slot collapses entirely).
+function applyKeyRowDisplay(d) {
+  if (!d || !d.keyRow) return;
+  if (!SETTINGS.showSmallKeys) {
+    d.keyRow.style.display = 'none';
+  } else {
+    d.keyRow.style.display = '';
+    d.keyRow.style.visibility = ((d._maxSmallKeys || 0) > 0) ? 'visible' : 'hidden';
+  }
+}
+
+function applyDungeonVisibility() {
+  Object.keys(dngEls).forEach(function(key) {
+    var d = dngEls[key]; if (!d) return;
+    d.map.style.display     = SETTINGS.showMap     ? '' : 'none';
+    d.compass.style.display = SETTINGS.showCompass ? '' : 'none';
+    d.bigkey.style.display  = SETTINGS.showBigKey  ? '' : 'none';
+    // Hide the icons row entirely if both map AND compass are hidden
+    d.iconsRow.style.display = (SETTINGS.showMap || SETTINGS.showCompass) ? '' : 'none';
+    d.chestRow.style.display = SETTINGS.showChests ? '' : 'none';
+    applyKeyRowDisplay(d);
+  });
+}
+
+// Toggle the default container (background + border) on every dungeon slot.
+// When box is disabled, also strip all completion-state classes so nothing
+// renders a visible box even if fill/prize state is technically met.
+function applyDungeonBox() {
+  Object.keys(dngEls).forEach(function(key) {
+    var d = dngEls[key]; if (!d) return;
+    d.slot.classList.toggle('no-box', !SETTINGS.dungeonBoxEnabled);
+    if (!SETTINGS.dungeonBoxEnabled) {
+      d.slot.classList.remove('prize-done', 'chests-done', 'prize-only');
+    }
+  });
+  // If box was just re-enabled, re-derive completion state from current data
+  if (SETTINGS.dungeonBoxEnabled) applyDungeonFill();
+}
+
+// Re-evaluate the chests-done / prize-done classes from the current DOM state.
+// Called when the user toggles "Dungeon Fill" so the visual updates without
+// waiting for the next snap.
+function applyDungeonFill() {
+  Object.keys(dngEls).forEach(function(key) {
+    var d = dngEls[key]; if (!d) return;
+    var parts = (d.chestVal.textContent || '0/0').split('/');
+    var c = parseInt(parts[0]) || 0;
+    var m = parseInt(parts[1]) || 0;
+    var allChests = c >= m && m > 0;
+    var prizeDone = (d.prize.src || '').indexOf('1.png') !== -1;
+    var fillOn   = SETTINGS.dungeonFillEnabled && SETTINGS.dungeonBoxEnabled;
+    d.slot.classList.toggle('prize-done',  fillOn && allChests && prizeDone);
+    d.slot.classList.toggle('chests-done', fillOn && allChests && !prizeDone);
+    if (!SETTINGS.dungeonBoxEnabled) d.slot.classList.remove('prize-only');
+  });
+}
+
+function applyDungeonColors() {
+  var chests   = SETTINGS.chestsColor   === 'custom' ? SETTINGS.chestsCustom   : (DUNGEON_PRESETS[SETTINGS.chestsColor]   || DUNGEON_PRESETS.blue);
+  var complete = SETTINGS.completeColor === 'custom' ? SETTINGS.completeCustom : (DUNGEON_PRESETS[SETTINGS.completeColor] || DUNGEON_PRESETS.green);
+  document.documentElement.style.setProperty('--chests-color',   chests);
+  document.documentElement.style.setProperty('--complete-color', complete);
+}
+
+function applyBg(bg) {
+  // If "image" was chosen but no image is stored, prompt to upload first.
+  if (bg === 'image' && !SETTINGS.bgImage) {
+    var picker = document.getElementById('opt-bg-image-file');
+    if (picker) picker.click();
+    // Re-select the previous bg in the radios
+    document.querySelectorAll('input[name="bg"]').forEach(function(r){ r.checked = (r.value === SETTINGS.bg); });
+    return;
+  }
+
+  SETTINGS.bg = bg;
+  saveSettings();
+
+  document.documentElement.setAttribute('data-bg', bg);
+  document.body.setAttribute('data-bg', bg);
+
+  if (bg === 'transparent') {
+    document.documentElement.style.background = 'transparent';
+    document.body.style.background = 'transparent';
+    document.body.style.backgroundColor = 'transparent';
+    document.body.style.backgroundImage = 'none';
+  } else if (bg === 'image') {
+    document.documentElement.style.setProperty('--bg-image', SETTINGS.bgImage ? 'url("' + SETTINGS.bgImage + '")' : 'none');
+    // Inline styles cleared so the [data-bg=image] rule can take over
+    document.body.style.background = '';
+    document.documentElement.style.background = '';
+    document.body.style.backgroundColor = '';
+    document.body.style.backgroundImage = '';
+  } else {
+    var bgMap = { black:'#000000', grey:'#333333', white:'#ffffff' };
+    var color = bgMap[bg] || '#000000';
+    document.body.style.background = color;
+    document.documentElement.style.background = color;
+    document.body.style.backgroundColor = color;
+    document.body.style.backgroundImage = 'none';
+  }
+
+  if (window.electronAPI && window.electronAPI.setBroadcastBg) window.electronAPI.setBroadcastBg(bg);
+}
+
+// Go Mode's sound now lives with the item sounds, so it follows the active
+// profile (and goes quiet on "No Sounds"). The old broadcast-settings sound is
+// still honoured when a profile has none of its own, so an existing setup keeps
+// working without being re-imported.
+// Per-sound volume, set in the Item Sounds window and stored beside the sound
+// (see bcast-sounds.html). Missing or unreadable = full volume.
+function soundVolume(storeKey) {
+  var v = parseInt(localStorage.getItem(storeKey + '-vol'), 10);
+  if (isNaN(v)) return 1;
+  return Math.max(0, Math.min(1, v / 100));
+}
+
+function playGomodeSound() {
+  if (RACE_MODE) return; // Race Mode: no Go Mode sound.
+  var p = parseInt(localStorage.getItem('alttp-sound-profile') || '1', 10);
+  if (p === 5) return;                                    // "No Sounds" profile
+  var pre = 'alttp-item-sound-' + ((p >= 2 && p <= 4) ? 'p' + p + '-' : '');
+  var dataUrl = localStorage.getItem(pre + 'gomode');
+  var vol = soundVolume(pre + 'gomode');
+  if (!dataUrl && SETTINGS.gomodeSoundEnabled) { dataUrl = SETTINGS.gomodeSoundData; vol = 1; }
+  if (!dataUrl) return;
+  try {
+    var audio = new Audio(dataUrl);
+    audio.volume = vol;
+    audio.play().catch(function() {});
+  } catch(e) {}
+}
+
+var BASE = (function() {
+  var p = new URLSearchParams(window.location.search);
+  var approot = p.get('approot');
+  return approot ? approot + '/items' : 'items';
+})();
+
+// Race Mode: when on, item collect sounds are suppressed in the broadcast view.
+var RACE_MODE = (function() {
+  var p = new URLSearchParams(window.location.search);
+  return (p.get('race') || localStorage.getItem('alttp-race-mode') || 'no') === 'yes';
+})();
+
+
+var IMGS = {
+  bow:       ['bow00','bow10','bow11','bow12'],
+  boomerang: ['boomerang00','boomerang10','boomerang01','boomerang11'],
+  hookshot:  ['hookshot0','hookshot1'],
+  bomb:      ['bomb00','bomb10'],
+  mushroom:  ['mushroom0','mushroom1','mushroom2'],
+  powder:    ['powder00','powder10'],
+  firerod:   ['firerod0','firerod1'],
+  icerod:    ['icerod0','icerod1'],
+  moonpearl: ['moonpearl0','moonpearl1'],
+  sword:     ['sword0','sword1','sword2','sword3','sword4'],
+  agahnim:   ['aga10','aga11'],
+  bombos:    ['bombos00','bombos10'],
+  ether:     ['ether00','ether10'],
+  quake:     ['quake00','quake10'],
+  lamp:      ['lamp0','lamp1'],
+  hammer:    ['hammer0','hammer1'],
+  shovel:    ['shovel0','shovel1'],
+  flute:     ['flute00','flute10','flute11'],
+  net:       ['net0','net1'],
+  gloves:    ['gloves0','gloves1','gloves2'],
+  shield:    ['shield0','shield1','shield2','shield3'],
+  book:      ['book0','book1'],
+  bottle1:   ['bottle0','bottle_empty','bottle_red','bottle_green','bottle_blue','bottle_fairy','bottle_bee','bottle_goodbee'],
+  bottle2:   ['bottle0','bottle_empty','bottle_red','bottle_green','bottle_blue','bottle_fairy','bottle_bee','bottle_goodbee'],
+  bottle3:   ['bottle0','bottle_empty','bottle_red','bottle_green','bottle_blue','bottle_fairy','bottle_bee','bottle_goodbee'],
+  bottle4:   ['bottle0','bottle_empty','bottle_red','bottle_green','bottle_blue','bottle_fairy','bottle_bee','bottle_goodbee'],
+  somaria:   ['caneofsomaria0','caneofsomaria1'],
+  byrna:     ['caneofbyrna0','caneofbyrna1'],
+  cape:      ['cape0','cape1'],
+  mirror:    ['mirror0','mirror1','mirror2'],
+  halfmagic: ['halfmagic0','halfmagic1'],
+  boots:     ['boots0','boots1'],
+  flippers:  ['flippers0','flippers1'],
+  tunic:     ['mail0','mail1','mail2'],
+  gomode:    ['gomode0','gomode1'],
+};
+
+// Swordless: the EMPTY sword slot shows swordno.png instead of sword0.png, the
+// same swap the item tracker makes in applySwordlessMode(). Only state 0 is
+// affected — a player who somehow has a sword keeps seeing it.
+// Read from localStorage (the broadcast window is launched with bg/approot/race
+// only, so there is no URL param to compete with) and re-read on every settings
+// change, per the in-memory-override rule in cross-window-settings.md.
+var _bcastSwordless = false;
+function readSwordlessFlag() {
+  try { _bcastSwordless = (localStorage.getItem('alttp-swordless') || 'no') === 'yes'; }
+  catch (e) { _bcastSwordless = false; }
+  return _bcastSwordless;
+}
+readSwordlessFlag();
+
+function imgSrc(key, st) {
+  var arr = IMGS[key]; if (!arr) return '';
+  // Seed-flag cosmetics: starting look when the flag is on and the real item
+  // (state 1) isn't obtained yet. Kept out of the state number so the value stays
+  // 0/1 for the collect animation (obtaining the real item is a 0 -> 1 increase).
+  if (key === 'boots'  && (st||0) === 0 && state.pseudoboots)  return BASE + '/pseudoboots.png';
+  if (key === 'mirror' && (st||0) === 0 && state.mirrorscroll) return BASE + '/mirrorscroll.png';
+  if (key === 'sword'  && (st||0) === 0 && _bcastSwordless)    return BASE + '/swordno.png';
+  return BASE + '/' + arr[Math.min(st||0, arr.length-1)] + '.png';
+}
+
+// Items that should NOT be filled even when their state > 0 (because state 0 is
+// the player's "starting" version of the item, e.g. green tunic / no upgrade).
+var FILL_SKIP_AT_ZERO_PLUS = {}; // currently empty — fill on state>0 for everything tracked
+
+// Modern layout — current default. 10 items + 1 special right-column slot per
+// row, plus a dedicated bottom row of 10 dungeons.
+var MODERN_ROWS = {
+  row1: ['bow','boomerang','hookshot','bomb','mushroom','powder','firerod','icerod','moonpearl','sword','agahnim'],
+  row2: ['bombos','ether','quake','lamp','hammer','shovel','flute','net','gloves','shield','gomode'],
+  row3: ['book','bottles','somaria','byrna','cape','mirror','halfmagic','boots','flippers','tunic','stats'],
+  row4: ['ep','dp','toh','pod','sp','sw','tt','ip','mm','tr']
+};
+
+// Classic layout — 5 rows × 8 cells. Dungeon slots render in a compact
+// "label + prize" form via the .bdng-slot.classic CSS modifier.
+// 'powmush' = combined Powder/Mushroom cell; 'fluteshovel' = combined Flute/Shovel cell.
+var CLASSIC_ROWS = {
+  row1: ['bow','boomerang','hookshot','bomb','powmush','boots','sword','ep'],
+  row2: ['firerod','icerod','bombos','ether','quake','gloves','shield','dp'],
+  row3: ['lamp','hammer','fluteshovel','net','book','flippers','tunic','toh'],
+  row4: ['bottles','somaria','byrna','cape','mirror','moonpearl','halfmagic','agahnim'],
+  row5: ['pod','sp','sw','tt','ip','mm','tr','gomode']
+};
+
+function activeRows()    { return SETTINGS.viewStyle === 'classic' ? CLASSIC_ROWS : MODERN_ROWS; }
+function isDungeonKey(k) { return ['ep','dp','toh','pod','sp','sw','tt','ip','mm','tr'].indexOf(k) !== -1; }
+
+// Backwards-compatible aliases — JS that walks the modern arrays in applySnap,
+// resetAll, refreshAllFills etc. still gets the right set.
+function currentItemRows() {
+  var R = activeRows();
+  return [R.row1, R.row2, R.row3];
+}
+var ROW4 = MODERN_ROWS.row4;   // dungeons that need state-applied, regardless of layout
+
+var state = {
+  bow:0,boomerang:0,hookshot:0,bomb:0,mushroom:0,powder:0,
+  firerod:0,icerod:0,moonpearl:0,sword:0,agahnim:0,
+  bombos:0,ether:0,quake:0,lamp:0,hammer:0,shovel:0,
+  flute:0,net:0,gloves:0,shield:0,
+  book:0,bottle1:0,bottle2:0,bottle3:0,bottle4:0,
+  somaria:0,byrna:0,cape:0,mirror:0,halfmagic:0,
+  boots:0,pseudoboots:0,mirrorscroll:0,flippers:0,tunic:0,gomode:0,
+  mmMedallion:0,trMedallion:0,checks:0,deaths:0,bonks:0,
+};
+// Combo slot keys — not real state keys, just layout sentinels
+var COMBO_SLOTS = {
+  powmush:     { keys: ['powder','mushroom'] },
+  fluteshovel: { keys: ['flute','shovel'] },
+};
+
+var slotEls = {};   // key -> img element (for items)
+var slotContainers = {}; // key -> the .bslot/.bslot-bottles wrapper that gets .filled
+var dngEls  = {};
+
+// Items that should never visually un-obtain mid-game. The SNES can briefly
+// report state 0 (e.g. on save & quit) for things like bombs even though the
+// player has clearly already collected them; on the broadcast we want to
+// avoid the green-then-flash-off ugliness. Cleared on 'newgame'.
+var STICKY_ITEMS = []; // bomb stickiness moved to items.js debounce (_bombClearTimer)
+var maxState = {};
+
+// Per-element "last applied" caches. We use these to skip DOM writes when
+// the current visual state already matches the requested one. Cleared on
+// rebuildRows / resetAll so a fresh DOM forces re-application.
+var _appliedItemState    = {};   // key (e.g. 'bow') -> last applied numeric state
+var _animSuppressNext    = true; // suppress animation on the very first snap (startup seed)
+var _appliedGomode       = -1;
+var _appliedDungeonState = {};   // key -> { chests, max, bigkey, map, compass, smallKeys, maxKeys, prize, obtained, classes }
+var _appliedMedallion    = { mm: -1, tr: -1 };
+var _appliedStats        = { checks: null, deaths: null, bonks: null };
+var _appliedGtBigKey;            // GT big key (no dungeon slot) — tracked for its collect animation
+
+// Snap coalescing — if multiple snap/prizes messages arrive within ~50 ms
+// (e.g. during reset or an autotracker burst), only re-render once with the
+// latest payload. Caps broadcast view re-render frequency at ~20 Hz.
+var _pendingSnap    = null;
+var _pendingPrizes  = null;
+var _snapTimer      = null;
+
+function applySnapCoalesced(snap) {
+  // Merge rather than replace — the item tracker sends two snap messages each
+  // cycle (broadcastItemSnap with full dungeon fields, then a slimmer
+  // map-focused snap from processInventoryData without Map/Compass/etc.).
+  // If we replaced, the slim snap would mask the fresh dungeon state and the
+  // broadcast view would never see map/compass changes flip from 0 to 1.
+  // Merging preserves fields the slim snap omits.
+  _pendingSnap = _pendingSnap ? Object.assign(_pendingSnap, snap) : snap;
+  if (_snapTimer) return;
+  _snapTimer = setTimeout(_flushSnap, 50);
+}
+function applyPrizesCoalesced(prizes) {
+  _pendingPrizes = prizes;
+  if (_snapTimer) return;
+  _snapTimer = setTimeout(_flushSnap, 50);
+}
+function _flushSnap() {
+  _snapTimer = null;
+  if (_pendingSnap) {
+    var s = _pendingSnap; _pendingSnap = null;
+    // Detect save-file load: broadcast state is near-zero but incoming snap
+    // carries many items — this is a seed, not a live collect. Suppress anim.
+    var ITEM_KEYS = ['sword','shield','bow','hookshot','firerod','icerod','bombos',
+      'ether','quake','lamp','hammer','shovel','flute','net','book','bottle1',
+      'somaria','byrna','cape','mirror','boots','flippers','halfmagic','moonpearl'];
+    var currentNonZero = ITEM_KEYS.filter(function(k){ return (state[k]||0) > 0; }).length;
+    var incomingNonZero = ITEM_KEYS.filter(function(k){ return (s[k]||0) > 0; }).length;
+    if (currentNonZero <= 2 && incomingNonZero >= 5) _animSuppressNext = true;
+    applySnap(s);
+  }
+  if (_pendingPrizes) { var p = _pendingPrizes; _pendingPrizes = null; applyPrizes(p); }
+}
+
+// ── Seed settings → re-render ────────────────────────────────────────────────
+// The broadcast view only repaints a field when its VALUE changes (every write
+// is diffed against _appliedDungeonState). A seed setting changes how the SAME
+// value is *displayed* — e.g. universal keys turns "0/6" into "6" — so nothing
+// repaints on its own and the view sits stale until the next real item change.
+// Clearing the cache and re-applying the last snapshot fixes that.
+var _bcastLastSnap   = {};
+var _suppressItemAnim = false;
+
+// Items whose LOOK depends on a seed flag rather than on their own value.
+// Repainted by writing the src directly, NOT by clearing _appliedItemState:
+// the state number hasn't changed, so clearing the cache would make every item
+// look newly obtained and fire the whole inventory's collect sounds.
+var _SEED_COSMETIC_KEYS = ['sword', 'boots', 'mirror'];
+function repaintSeedCosmetics() {
+  _SEED_COSMETIC_KEYS.forEach(function(key) {
+    var el = slotEls[key]; if (!el) return;
+    var want = imgSrc(key, state[key] || 0);
+    if (want && el.getAttribute('src') !== want) el.setAttribute('src', want);
+  });
+}
+
+function refreshSeedSettings() {
+  _suppressItemAnim = true;      // a re-render is not a collect
+  try {
+    readSwordlessFlag();
+    _appliedDungeonState = {};
+    if (Object.keys(_bcastLastSnap).length) applySnap(_bcastLastSnap);
+    repaintSeedCosmetics();
+  } catch (e) {
+    console.error('refreshSeedSettings failed:', e);
+  } finally {
+    _suppressItemAnim = false;
+  }
+}
+
+// Seed settings the broadcast view renders. Written by the map's gear menu and
+// by the launcher; this window gets a storage event either way.
+var _SEED_SETTING_KEYS = {
+  'alttp-gamemode': 1, 'alttp-universal-keys': 1, 'alttp-dungeon-items': 1,
+  'alttp-bossshuffle': 1, 'alttp-swordless': 1, 'alttp-enemizer': 1,
+  'alttp-gt-crystals': 1, 'alttp-keydrop': 1, 'alttp-enemy-keydrop': 1, 'alttp-keydrop-all': 1,
+  // The drop modes move every dungeon's maxes, so the view has to repaint for
+  // the same reason it does on key drop. The CT item box is item-tracker only
+  // and is deliberately NOT mirrored here.
+  'alttp-pot-drops': 1, 'alttp-enemy-drops': 1, 'alttp-pots-bones': 1
+};
+window.addEventListener('storage', function(ev) {
+  if (ev.key && _SEED_SETTING_KEYS[ev.key]) refreshSeedSettings();
+});
+window.refreshSeedSettings = refreshSeedSettings;
+
+function buildDungeonSlot(key) {
+  var slot = document.createElement('div');
+  slot.className = 'bdng-slot'
+    + (SETTINGS.viewStyle === 'classic' ? ' classic' : '')
+    + (SETTINGS.dungeonBoxEnabled ? '' : ' no-box');
+
+  // Label (centered, on its own row)
+  var nameEl = document.createElement('div'); nameEl.className = 'bdng-name';
+  nameEl.textContent = key.toUpperCase();
+  slot.appendChild(nameEl);
+
+  // Prize + big key, centered, under the label
+  var top = document.createElement('div'); top.className = 'bdng-top';
+  var prizeImg  = document.createElement('img'); prizeImg.className  = 'bdng-prize';      prizeImg.src  = BASE+'/crystal0.png';
+  var bigkeyImg = document.createElement('img'); bigkeyImg.className = 'bdng-bigkey-top'; bigkeyImg.src = BASE+'/bigkey0.png';
+  top.appendChild(prizeImg); top.appendChild(bigkeyImg);
+  slot.appendChild(top);
+
+  // Map / compass, centered
+  var icons = document.createElement('div'); icons.className = 'bdng-icons';
+  var mapImg     = document.createElement('img'); mapImg.src     = BASE+'/map0.png';
+  var compassImg = document.createElement('img'); compassImg.src = BASE+'/compass0.png';
+  icons.appendChild(mapImg); icons.appendChild(compassImg);
+  slot.appendChild(icons);
+
+  // Small keys row
+  var keyRow = document.createElement('div'); keyRow.className = 'bdng-row bdng-keys-row';
+  var keyIcon  = document.createElement('img'); keyIcon.src = BASE+'/smallkey0.png';
+  var keyVal   = document.createElement('span'); keyVal.className = 'bdng-keys'; keyVal.textContent = '0/0';
+  keyRow.appendChild(keyIcon); keyRow.appendChild(keyVal);
+  slot.appendChild(keyRow);
+
+  // Chest row
+  var chestRow = document.createElement('div'); chestRow.className = 'bdng-row bdng-chests-row';
+  var chestIcon = document.createElement('img'); chestIcon.src = BASE+'/chest0.png';
+  var chestVal  = document.createElement('span'); chestVal.className = 'bdng-chests'; chestVal.textContent = '0/0';
+  chestRow.appendChild(chestIcon); chestRow.appendChild(chestVal);
+  slot.appendChild(chestRow);
+
+  dngEls[key] = {
+    slot: slot, name: nameEl, prize: prizeImg,
+    map: mapImg, bigkey: bigkeyImg, compass: compassImg, iconsRow: icons,
+    keyRow: keyRow, keyIcon: keyIcon, keyVal: keyVal,
+    chestRow: chestRow, chestIcon: chestIcon, chestVal: chestVal,
+    _maxSmallKeys: 0
+  };
+  return slot;
+}
+
+function buildRows() {
+  function makeSlot(key, rowEl, isRightColumn) {
+    if (isDungeonKey(key)) {
+      rowEl.appendChild(buildDungeonSlot(key));
+      return;
+    }
+    if (key === 'bottles') {
+      var grid = document.createElement('div'); grid.className = 'bslot-bottles';
+      ['bottle1','bottle2','bottle3','bottle4'].forEach(function(bk) {
+        var cell = document.createElement('div'); cell.className = 'bminibottle';
+        var i = document.createElement('img'); i.src = imgSrc(bk,0);
+        slotEls[bk] = i; cell.appendChild(i); grid.appendChild(cell);
+      });
+      slotContainers['bottles'] = grid;
+      rowEl.appendChild(grid); return;
+    }
+    if (COMBO_SLOTS[key]) {
+      var combo = COMBO_SLOTS[key];
+      var wrap = document.createElement('div'); wrap.className = 'bslot-combo';
+      combo.keys.forEach(function(ck) {
+        var cell = document.createElement('div'); cell.className = 'bcombo-img';
+        var i = document.createElement('img'); i.src = imgSrc(ck, 0);
+        slotEls[ck] = i; cell.appendChild(i); wrap.appendChild(cell);
+        // Each sub-item gets its own container so fill is applied per-item
+        slotContainers[ck] = cell;
+      });
+      rowEl.appendChild(wrap); return;
+    }
+    if (key === 'gomode') {
+      var wrap = document.createElement('div');
+      wrap.className = (SETTINGS.viewStyle === 'classic') ? 'bslot' : 'bright-slot';
+      var btn = document.createElement('div'); btn.className = 'bgo-btn'; btn.textContent = 'GO';
+      slotEls['gomode'] = btn; wrap.appendChild(btn); rowEl.appendChild(wrap); return;
+    }
+    if (key === 'stats') {
+      var box = document.createElement('div'); box.className = 'bstats-slot';
+      [['check','CHECK','bstat-check'],['death','DEATH','bstat-death'],['bonk','BONKS','bstat-bonk']].forEach(function(t) {
+        var row = document.createElement('div'); row.className = 'bstat-row';
+        var lbl = document.createElement('span'); lbl.className = 'bstat-label'; lbl.textContent = t[1];
+        var val = document.createElement('span'); val.className = t[2]; val.textContent = '0';
+        row.appendChild(lbl); row.appendChild(val); box.appendChild(row);
+        slotEls['stat_'+t[0]] = val;
+      });
+      rowEl.appendChild(box); return;
+    }
+    var slotClass = isRightColumn ? 'bright-slot bslot-icon' : 'bslot';
+    var slot = document.createElement('div'); slot.className = slotClass;
+    var i = document.createElement('img'); i.src = imgSrc(key,0);
+    slot.appendChild(i); slotEls[key] = i;
+    slotContainers[key] = slot;
+    if (['bombos','ether','quake'].indexOf(key) >= 0) {
+      var lbl = document.createElement('div'); lbl.className = 'bmed-label';
+      slotEls[key+'_lbl'] = lbl; slot.appendChild(lbl);
+    }
+    rowEl.appendChild(slot);
+  }
+
+  // Render every rowN key the active config provides. Modern has 4 rows
+  // (rows 1–3 are items + 1 right-column special, row 4 is the dungeon row).
+  // Classic has 5 rows (4 item rows + 1 dungeon row).
+  var R = activeRows();
+  var container = document.querySelector('.broadcast-container');
+  // Strip any rows already in the container — needed for live view-style swap
+  container.querySelectorAll('.bcast-row').forEach(function(r) { r.remove(); });
+
+  var rowKeys = Object.keys(R).filter(function(k) { return /^row\d+$/.test(k); })
+                              .sort(function(a, b) { return parseInt(a.slice(3)) - parseInt(b.slice(3)); });
+  rowKeys.forEach(function(rowKey) {
+    var rowEl = document.createElement('div');
+    rowEl.className = 'bcast-row';
+    rowEl.id = rowKey;
+    container.appendChild(rowEl);
+    var row = R[rowKey];
+    var classic = SETTINGS.viewStyle === 'classic';
+    row.forEach(function(k, idx) {
+      var lastInRow = idx === row.length - 1;
+      // Classic uses a uniform 8-cell grid — no wide right-column slots.
+      var isRight = !classic && lastInRow && (k === 'agahnim' || k === 'gomode' || k === 'stats');
+      makeSlot(k, rowEl, isRight);
+    });
+  });
+}
+
+// Tear down all rendered slots and rebuild from the active row config. Used
+// when the user flips View Style without a full reload.
+function rebuildRows() {
+  slotEls = {};
+  slotContainers = {};
+  dngEls = {};
+  _animSuppressNext = true;    // next snap re-seeds the new layout, not new collects
+  // Reset the "last applied to DOM" caches — the new DOM starts at defaults
+  // so the next snap must actually write through.
+  _appliedItemState    = {};
+  _appliedGomode       = -1;
+  _appliedDungeonState = {};
+  _appliedGtBigKey     = undefined;
+  _appliedMedallion    = { mm: -1, tr: -1 };
+  _appliedStats        = { checks: null, deaths: null, bonks: null };
+  // buildRows() removes/rebuilds the .bcast-row elements wholesale
+  buildRows();
+  applyDungeonVisibility();
+  // Re-apply current state to the new DOM
+  applySnap(state);
+  // And ask the item tracker to resend a fresh snap so prize state is correct
+  try { new BroadcastChannel('alttp-tracker').postMessage({ type: 'requestSnap' }); } catch(e) {}
+}
+
+// ── Item fill helpers ────────────────────────────────────────────────────
+function isFilledFor(key, val) {
+  if (!SETTINGS.fillEnabled) return false;
+  if (key === 'stats' || key === 'gomode' || key === 'agahnim') return false;
+  // Seed-flag cosmetics are present from game load — fill their slot at state 0.
+  if (key === 'boots'  && state.pseudoboots)  return true;
+  if (key === 'mirror' && state.mirrorscroll) return true;
+  return (val|0) > 0;
+}
+
+function applyFill(key, container, isFilled) {
+  if (!container) return;
+  var was = container.classList.contains('filled');
+  if (isFilled === was) return;
+  if (isFilled) {
+    // Clear existing effect classes, then re-add to retrigger animation
+    container.classList.remove('fx-falling', 'fx-fade', 'fx-edges');
+    container.classList.add('filled');
+    // 'starburst' option uses the uniform fade-in; 'none' uses the edges-in mask.
+    if (SETTINGS.fillEffect === 'falling')   void container.offsetWidth, container.classList.add('fx-falling');
+    if (SETTINGS.fillEffect === 'starburst') void container.offsetWidth, container.classList.add('fx-fade');
+    if (SETTINGS.fillEffect === 'none')      void container.offsetWidth, container.classList.add('fx-edges');
+  } else {
+    container.classList.remove('filled', 'fx-falling', 'fx-fade', 'fx-edges');
+  }
+}
+
+function refreshAllFills() {
+  // Walk every item key across every row (Classic puts items on row 4 too).
+  // Dungeons / gomode / stats are filtered inside the loop.
+  var R = activeRows();
+  var all = [];
+  Object.keys(R).filter(function(k){ return /^row\d+$/.test(k); }).forEach(function(rk){ all = all.concat(R[rk]); });
+  all.forEach(function(key) {
+    if (key === 'bottles') {
+      var anyBottle = ['bottle1','bottle2','bottle3','bottle4'].some(function(b){ return (state[b]||0) > 0; });
+      applyFill('bottles', slotContainers['bottles'], isFilledFor('bottles', anyBottle ? 1 : 0));
+      return;
+    }
+    if (COMBO_SLOTS[key]) {
+      // Each sub-item fills its own triangular half independently
+      COMBO_SLOTS[key].keys.forEach(function(ck) {
+        applyFill(ck, slotContainers[ck], isFilledFor(ck, state[ck]||0));
+      });
+      return;
+    }
+    if (key === 'stats') return;
+    var c = slotContainers[key]; if (!c) return;
+    applyFill(key, c, isFilledFor(key, state[key]||0));
+  });
+}
+
+function updateItem(key, val) {
+  if (key === 'gomode') {
+    var btn = slotEls['gomode']; if (!btn) return;
+    if (_appliedGomode === val) return;
+    var prev = _appliedGomode;
+    _appliedGomode = val;
+    btn.className = 'bgo-btn' + (val === 1 ? ' on' : val === 2 ? ' feeling' : '');
+    if (val === 1 && prev !== 1) {
+      playGomodeSound();
+      if (SETTINGS.gomodeSparksEnabled) startGomodeSparks();
+      if (SETTINGS.itemAnimEnabled && !_animSuppressNext) {
+        queueItemAnim('gomode', imgSrc('gomode', 1), 'Go Mode !!');
+      }
+    } else if (val !== 1) {
+      stopGomodeSparks();
+    }
+    return;
+  }
+  var el = slotEls[key]; if (!el) return;
+  // Use _appliedItemState as prev — state[] is already updated by applySnap
+  // before updateItem is called, so we can't diff from state[key] here.
+  var prevApplied = _appliedItemState[key] !== undefined ? _appliedItemState[key] : 0;
+  state[key] = val;
+  // Skip the DOM write if this item is already showing the requested state.
+  if (_appliedItemState[key] === val) return;
+  _appliedItemState[key] = val;
+  el.src = imgSrc(key, val);
+
+  // Trigger animation when value increases (item newly obtained / upgraded).
+  var isBottle = (key === 'bottle1' || key === 'bottle2' || key === 'bottle3' || key === 'bottle4');
+  var bottleAlreadyOwned = isBottle && ['bottle1','bottle2','bottle3','bottle4'].some(function(b) {
+    return b !== key && (state[b]||0) > 0;
+  });
+  // Flute/mushroom: only animate + play sound on first pickup (0 → 1), not on
+  // their progression (flute activated, mushroom turned into powder).
+  var _progOnlyItem = (key === 'flute' || key === 'mushroom');
+  if (SETTINGS.itemAnimEnabled && !_animSuppressNext && val > prevApplied && key !== 'bomb' && !bottleAlreadyOwned && !(_progOnlyItem && prevApplied > 0)) {
+    var animLabel = ITEM_NAMES[key] || key;
+    if (key === 'boomerang') {
+      var gotBlue = (val & 1) && !(prevApplied & 1);
+      var gotRed  = (val & 2) && !(prevApplied & 2);
+      animLabel = gotRed && !gotBlue ? 'Red Boomerang' : 'Blue Boomerang';
+    }
+    if (val >= 1 && TIERED_ITEM_NAMES[key] && TIERED_ITEM_NAMES[key][val]) {
+      animLabel = TIERED_ITEM_NAMES[key][val];
+    } else if (val > 1 && key === 'mirror') {
+      animLabel = animLabel + ' (Lv ' + val + ')';
+    }
+    if (key === 'gomode') {
+      animLabel = val === 2 ? 'Go Mode Feeling!' : 'Go Mode!';
+    }
+    queueItemAnim(key, imgSrc(key, val), animLabel);
+    // Per-item collect sound (not for bomb)
+    playItemSound(key, val);
+  }
+
+  // Update fill — bottles key fill on parent container; combo sub-items each have their own container
+  if (key === 'bottle1' || key === 'bottle2' || key === 'bottle3' || key === 'bottle4') {
+    var anyBottle = ['bottle1','bottle2','bottle3','bottle4'].some(function(b){ return (state[b]||0) > 0; });
+    applyFill('bottles', slotContainers['bottles'], isFilledFor('bottles', anyBottle ? 1 : 0));
+  } else {
+    // Combo sub-items each have their own slotContainer (.bcombo-img cell)
+    applyFill(key, slotContainers[key], isFilledFor(key, val));
+  }
+}
+
+function updateMedallions() {
+  // Only re-evaluate when one of the two assignments actually changed.
+  if (_appliedMedallion.mm === state.mmMedallion && _appliedMedallion.tr === state.trMedallion) return;
+  _appliedMedallion.mm = state.mmMedallion;
+  _appliedMedallion.tr = state.trMedallion;
+  var map = {bombos:1,ether:2,quake:3};
+  Object.keys(map).forEach(function(k) {
+    var lbl = slotEls[k+'_lbl']; if (!lbl) return;
+    var idx = map[k];
+    var next = '';
+    if (state.mmMedallion===idx && state.trMedallion===idx) next='BOTH';
+    else if (state.mmMedallion===idx) next='MM';
+    else if (state.trMedallion===idx) next='TR';
+    if (lbl.textContent !== next) lbl.textContent = next;
+  });
+}
+
+// You-are-here dot beside the dungeon name — the dungeon Link is in right now,
+// from the item tracker's read of $7E040C (Chris, Oct 2026). Kept outside the
+// per-dungeon cache and re-applied each time, so a rebuilt layout keeps it.
+var _currentDungeon = null;
+function applyCurrentDungeon() {
+  Object.keys(dngEls).forEach(function (k) {
+    dngEls[k].name.classList.toggle('here', SETTINGS.hereDot && !RACE_MODE && k === _currentDungeon);
+  });
+}
+
+function applySnap(snap) {
+  if (snap.currentDungeon !== undefined) _currentDungeon = snap.currentDungeon;
+  applyCurrentDungeon();
+  // Keep a running merge of everything we've ever been sent, so a settings
+  // change can re-render the current state without waiting for the next poll.
+  // Done here rather than in the coalescer so every entry point populates it.
+  if (snap && snap !== _bcastLastSnap) Object.assign(_bcastLastSnap, snap);
+  Object.keys(snap).forEach(function(k) {
+    if (!(k in state)) return;
+    var v = snap[k];
+    // Sticky items: never decrement once we've seen a higher state this game.
+    if (STICKY_ITEMS.indexOf(k) !== -1) {
+      var prev = maxState[k] || 0;
+      if (v > prev) maxState[k] = v;
+      else if (v < prev) v = prev;
+    }
+    state[k] = v;
+  });
+
+  // Walk every item key across every row (Classic puts items on row 4 too).
+  var Rs = activeRows();
+  var allKeys = [];
+  Object.keys(Rs).filter(function(k){ return /^row\d+$/.test(k); }).forEach(function(rk){ allKeys = allKeys.concat(Rs[rk]); });
+  allKeys.forEach(function(key) {
+    if (key==='bottles') ['bottle1','bottle2','bottle3','bottle4'].forEach(function(bk){updateItem(bk,state[bk]||0);});
+    else if (COMBO_SLOTS[key]) COMBO_SLOTS[key].keys.forEach(function(ck){updateItem(ck,state[ck]||0);});
+    // Boots: value stays 0/1 (pseudo look is handled in imgSrc), so the collect
+    // animation fires normally when real boots is obtained (0 -> 1).
+    else if (key!=='stats' && !isDungeonKey(key)) updateItem(key,state[key]||0);
+  });
+  updateMedallions();
+
+  if (snap.checks !== undefined && slotEls['stat_check'] && _appliedStats.checks !== snap.checks) {
+    slotEls['stat_check'].textContent = snap.checks; _appliedStats.checks = snap.checks;
+  }
+  if (snap.deaths !== undefined && slotEls['stat_death'] && _appliedStats.deaths !== snap.deaths) {
+    slotEls['stat_death'].textContent = snap.deaths; _appliedStats.deaths = snap.deaths;
+  }
+  if (snap.bonks  !== undefined && slotEls['stat_bonk']  && _appliedStats.bonks  !== snap.bonks) {
+    slotEls['stat_bonk'].textContent  = snap.bonks;  _appliedStats.bonks  = snap.bonks;
+  }
+
+  // Dungeons — diff every write against last-applied per-dungeon cache so
+  // unchanged values don't touch the DOM at all.
+  ROW4.forEach(function(key) {
+    var d = dngEls[key]; if (!d) return;
+    var cache = _appliedDungeonState[key] || (_appliedDungeonState[key] = {});
+    var chests        = snap[key+'Chests'];
+    var maxChests     = snap[key+'MaxChests'];
+    var bigkey        = snap[key+'BigKey'];
+    var mapState      = snap[key+'Map'];
+    var compassState  = snap[key+'Compass'];
+    var smallKeys     = snap[key+'SmallKeys'];
+    var maxSmallKeys  = snap[key+'MaxSmallKeys'];
+    var prize         = snap[key+'Prize'];
+    var obtained      = snap[key+'PrizeObtained'];
+
+    if (chests !== undefined || maxChests !== undefined) {
+      var c = chests    !== undefined ? chests    : (cache.chests || 0);
+      var m = maxChests !== undefined ? maxChests : (cache.maxChests || 0);
+      if (c !== cache.chests || m !== cache.maxChests) {
+        d.chestVal.textContent = c + '/' + m;
+        var full = c >= m && m > 0;
+        d.chestIcon.src = BASE+'/'+(full?'chest00.png':'chest0.png');
+        d.chestVal.classList.toggle('full', full);
+        cache.chests = c; cache.maxChests = m; cache.chestsFull = full;
+      }
+    }
+    if (smallKeys !== undefined || maxSmallKeys !== undefined) {
+      var sc = smallKeys    !== undefined ? smallKeys    : (cache.smallKeys || 0);
+      var sm = maxSmallKeys !== undefined ? maxSmallKeys : (cache.maxSmallKeys || 0);
+      // The item tracker's trackerItems.*SmallKeys is a raw SRAM byte and can
+      // exceed the dungeon's max in some shuffle modes / save-and-quit cases.
+      // Clamp here so the broadcast can never show e.g. "5/3" or "8/3".
+      if (sm > 0 && sc > sm) sc = sm;
+      // Guard against non-integers slipping through (shouldn't happen, but the
+      // 8.5/3 report suggests something occasionally arrives non-clean).
+      sc = Math.floor(sc) || 0;
+      sm = Math.floor(sm) || 0;
+      if (sc !== cache.smallKeys || sm !== cache.maxSmallKeys) {
+        // Retro buys keys from shops, so there is no per-dungeon progress to
+        // show — the row states how many key doors the dungeon has instead.
+        // Universal keys (the seed option, or the Retro world state that implies
+        // it) means there is no per-dungeon progress to show.
+        var _retro = false;
+        try {
+          _retro = (localStorage.getItem('alttp-gamemode') || 'standard') === 'retro'
+                || (localStorage.getItem('alttp-universal-keys') || 'no') === 'yes';
+        } catch (e) {}
+        d.keyVal.textContent = _retro ? String(sm) : sc + '/' + sm;
+        var sfull = !_retro && sc >= sm && sm > 0;
+        d.keyVal.classList.toggle('full', sfull);
+        cache.smallKeys = sc; cache.maxSmallKeys = sm;
+        d._maxSmallKeys = sm;
+        applyKeyRowDisplay(d);
+      }
+    }
+    if (bigkey       !== undefined && bigkey       !== cache.bigkey)  {
+      var prevBigkey = cache.bigkey;
+      d.bigkey.src  = BASE+'/bigkey'  + (bigkey       ? '1' : '0') + '.png'; cache.bigkey  = bigkey;
+      // Animate when the big key is newly obtained (not on the startup seed).
+      if (bigkey && !prevBigkey && !_animSuppressNext && SETTINGS.itemAnimEnabled && SETTINGS.bigKeyAnimEnabled) {
+        queueItemAnim('_bigkey_' + key, BASE + '/bigkey1.png', (DUNGEON_NAMES[key] || key.toUpperCase()) + ' Big Key');
+        playItemSound('bigkey');
+      }
+    }
+    if (mapState     !== undefined && mapState     !== cache.map)     {
+      var prevMap = cache.map;
+      d.map.src     = BASE+'/map'     + (mapState     ? '1' : '0') + '.png'; cache.map     = mapState;
+      if (mapState && !prevMap && !_animSuppressNext && SETTINGS.itemAnimEnabled && SETTINGS.mapAnimEnabled) {
+        queueItemAnim('_map_' + key, BASE + '/map1.png', (DUNGEON_NAMES[key] || key.toUpperCase()) + ' Map');
+        playItemSound('map');
+      }
+    }
+    if (compassState !== undefined && compassState !== cache.compass) {
+      var prevCompass = cache.compass;
+      d.compass.src = BASE+'/compass' + (compassState ? '1' : '0') + '.png'; cache.compass = compassState;
+      if (compassState && !prevCompass && !_animSuppressNext && SETTINGS.itemAnimEnabled && SETTINGS.compassAnimEnabled) {
+        queueItemAnim('_compass_' + key, BASE + '/compass1.png', (DUNGEON_NAMES[key] || key.toUpperCase()) + ' Compass');
+        playItemSound('compass');
+      }
+    }
+    // Update the prize image only if the snap supplied prize info — some snaps
+    // (e.g. the legacy broadcastItems shape) don't carry prize fields, so we must not
+    // wipe out the current image or completion state when they're missing.
+    if (prize !== undefined) {
+      var prizeSrc = BASE+'/'+prize+(obtained?'1':'0')+'.png';
+      if (prize !== cache.prize || !!obtained !== !!cache.obtained) {
+        var prevObtainedSnap = !!cache.obtained;
+        d.prize.src = prizeSrc;
+        cache.prize = prize; cache.obtained = !!obtained;
+        if (obtained && !prevObtainedSnap && !_animSuppressNext && SETTINGS.itemAnimEnabled) {
+          var snapPrizeName  = { crystal:'Crystal', redcrystal:'Red Crystal', greenpendant:'Green Pendant', pendant:'Pendant' }[prize] || 'Prize';
+          var snapPrizeLabel = (DUNGEON_NAMES[key] || key.toUpperCase()) + ' ' + snapPrizeName;
+          queueItemAnim('_dungeon_' + key, BASE + '/' + prize + '1.png', snapPrizeLabel);
+        }
+      }
+    }
+
+    // Completion state — derive obtained from the prize image src so partial
+    // snaps don't flip a green slot back to blue.
+    var srcNow   = d.prize.src || '';
+    var prizeDone = srcNow.indexOf('1.png') !== -1;
+    var allChests = !!cache.chestsFull;
+    var fillOn   = SETTINGS.dungeonFillEnabled && SETTINGS.dungeonBoxEnabled;
+    var wantPrize  = fillOn && allChests && prizeDone;
+    var wantChests = fillOn && allChests && !prizeDone;
+    if (cache.prizeDoneClass !== wantPrize)   { d.slot.classList.toggle('prize-done',  wantPrize);  cache.prizeDoneClass  = wantPrize; }
+    if (cache.chestsDoneClass !== wantChests) { d.slot.classList.toggle('chests-done', wantChests); cache.chestsDoneClass = wantChests; }
+
+    // Green outline when the boss is defeated (prize collected) but the
+    // dungeon's chests aren't all done yet. Applied to every dungeon now.
+    var wantPrizeOnly = SETTINGS.dungeonBoxEnabled && prizeDone && !allChests;
+    if (cache.pendantClass !== wantPrizeOnly) { d.slot.classList.toggle('prize-only', wantPrizeOnly); cache.pendantClass = wantPrizeOnly; }
+  });
+
+  // Ganon's Tower big key — GT isn't a ROW4 dungeon slot, so its collect
+  // animation is handled here off the snap flag rather than the dungeon loop.
+  if (snap.gtBigKey !== undefined && snap.gtBigKey !== _appliedGtBigKey) {
+    var prevGtBk = _appliedGtBigKey;
+    _appliedGtBigKey = snap.gtBigKey;
+    if (snap.gtBigKey && !prevGtBk && !_animSuppressNext && SETTINGS.itemAnimEnabled && SETTINGS.bigKeyAnimEnabled) {
+      queueItemAnim('_bigkey_gt', BASE + '/bigkey1.png', "Ganon's Tower Big Key");
+      playItemSound('bigkey');
+    }
+  }
+
+  // Recompute item fills against new state
+  refreshAllFills();
+  // After the first snap the broadcast is fully seeded — allow animations from now on
+  _animSuppressNext = false;
+}
+
+function resetAll() {
+  abortItemAnim();
+  stopGomodeSparks();
+  Object.keys(state).forEach(function(k){state[k]=0;});
+  maxState = {};
+  _animSuppressNext = true;      // next snap is the post-reset seed, not a new collect
+  // Force every diff guard to "unknown" so resetAll cleanly re-writes every slot.
+  _appliedItemState    = {};
+  _appliedGomode       = -1;
+  _appliedDungeonState = {};
+  _appliedGtBigKey     = undefined;
+  _appliedMedallion    = { mm: -1, tr: -1 };
+  _appliedStats        = { checks: null, deaths: null, bonks: null };
+  applySnap(state);
+  ['stat_check','stat_death','stat_bonk'].forEach(function(k){if(slotEls[k])slotEls[k].textContent='0';});
+  ROW4.forEach(function(k){
+    var d=dngEls[k]; if(!d) return;
+    d.chestVal.textContent='0/0'; d.keyVal.textContent='0/0';
+    d.prize.src=BASE+'/crystal0.png';
+    d.bigkey.src=BASE+'/bigkey0.png';
+    d.map.src=BASE+'/map0.png';
+    d.compass.src=BASE+'/compass0.png';
+    d.chestIcon.src=BASE+'/chest0.png';
+    d.keyIcon.src=BASE+'/smallkey0.png';
+    d.slot.classList.remove('chests-done','prize-done','prize-only');
+  });
+  refreshAllFills();
+}
+
+// Apply a "prizes" message — prize-only update, recomputes completion class.
+function applyPrizes(prizes) {
+  if (!prizes) return;
+  Object.keys(prizes).forEach(function(key) {
+    var d = dngEls[key]; if (!d) return;
+    var p = prizes[key]; if (!p) return;
+    var prizeName = p.name || 'crystal';
+    var obtained  = !!p.obtained;
+
+    // Detect obtained flip for animation (cache is in _appliedDungeonState)
+    var cache = _appliedDungeonState[key] || (_appliedDungeonState[key] = {});
+    var prevObtained = !!cache.obtained;
+
+    d.prize.src = BASE + '/' + prizeName + (obtained ? '1' : '0') + '.png';
+    cache.prize   = prizeName;
+    cache.obtained = obtained;
+
+    // Animate dungeon defeat if newly obtained and not suppressed
+    if (obtained && !prevObtained && !_animSuppressNext && SETTINGS.itemAnimEnabled) {
+      var dngPrizeName  = { crystal:'Crystal', redcrystal:'Red Crystal', greenpendant:'Green Pendant', pendant:'Pendant' }[prizeName] || 'Prize';
+      var dngPrizeLabel = (DUNGEON_NAMES[key] || key.toUpperCase()) + ' ' + dngPrizeName;
+      queueItemAnim('_dungeon_' + key, BASE + '/' + prizeName + '1.png', dngPrizeLabel);
+    }
+
+    var parts = d.chestVal.textContent.split('/');
+    var cNow  = parseInt(parts[0]) || 0;
+    var mNow  = parseInt(parts[1]) || 0;
+    var allChests = cNow >= mNow && mNow > 0;
+    var fillOn = SETTINGS.dungeonFillEnabled && SETTINGS.dungeonBoxEnabled;
+    d.slot.classList.toggle('prize-done',  fillOn && allChests && obtained);
+    d.slot.classList.toggle('chests-done', fillOn && allChests && !obtained);
+
+    // Boss defeated but chests remain — green outline on every dungeon.
+    d.slot.classList.toggle('prize-only', SETTINGS.dungeonBoxEnabled && obtained && !allChests);
+  });
+}
+
+// ── Item name labels for animation overlay ───────────────────────────────
+var ITEM_NAMES = {
+  bow:'Bow', hookshot:'Hookshot', bomb:'Bombs',
+  mushroom:'Mushroom', powder:'Magic Powder', firerod:'Fire Rod', icerod:'Ice Rod',
+  moonpearl:'Moon Pearl', sword:'Sword', agahnim:'Agahnim Defeated',
+  bombos:'Bombos', ether:'Ether', quake:'Quake',
+  lamp:'Lamp', hammer:'Hammer', shovel:'Shovel', flute:'Flute',
+  net:'Bug-Catching Net', gloves:'Power Gloves', shield:'Shield', book:'Book of Mudora',
+  bottle1:'Bottle', somaria:'Cane of Somaria', byrna:'Cane of Byrna',
+  cape:'Magic Cape', mirror:'Magic Mirror', halfmagic:'Half Magic',
+  boots:'Pegasus Boots', flippers:'Flippers', tunic:'Tunic',
+  gomode:'Go Mode!'
+};
+
+// Tiered item names — used instead of ITEM_NAMES + "(Lv N)" when val > 1
+var TIERED_ITEM_NAMES = {
+  sword:  ['', "Fighter's Sword", 'Master Sword', 'Tempered Sword', 'Golden Sword'],
+  gloves: ['', 'Power Glove', "Titan's Mitt"],
+  shield: ['', 'Blue Shield', 'Red Shield', 'Mirror Shield'],
+  tunic:  ['', 'Blue Mail', 'Red Mail']
+};
+var DUNGEON_NAMES = {
+  ep:'Eastern Palace', dp:'Desert Palace', toh:'Tower of Hera',
+  pod:'Palace of Darkness', sp:'Swamp Palace', sw:'Skull Woods',
+  tt:"Thieves' Town", ip:'Ice Palace', mm:'Misery Mire', tr:'Turtle Rock'
+};
+
+// ── Item Animation Engine ────────────────────────────────────────────────
+var _animQueue      = [];
+var _animRunning    = false;
+var _animKey        = null;
+var _animAbortToken = 0;    // incremented to cancel in-flight animation timers
+var _animStopBgFn   = null; // active background stop function, if any
+
+function queueItemAnim(key, imgSrcUrl, label) {
+  if (!SETTINGS.itemAnimEnabled) return;
+  if (_suppressItemAnim) return;   // re-render after a settings change
+  // Cap the queue at 3 total — if already at/over the limit, drop the oldest
+  // pending items so we only show the most recent ones.
+  if (_animQueue.length >= 3) _animQueue = _animQueue.slice(-2);
+  _animQueue.push({ key: key, src: imgSrcUrl, label: label || '' });
+  if (!_animRunning) _nextAnim();
+}
+
+function abortItemAnim() {
+  _animAbortToken++;          // invalidates all pending setTimeout callbacks
+  _animQueue = [];
+  _animRunning = false;
+  if (_animStopBgFn) { try { _animStopBgFn(); } catch(e) {} _animStopBgFn = null; }
+  // Force overlay back to hidden state immediately
+  var overlay   = document.getElementById('item-anim-overlay');
+  var animLabel = document.getElementById('item-anim-label');
+  var animImg   = document.getElementById('item-anim-img');
+  var charEl    = document.getElementById('item-anim-character');
+  var container = document.querySelector('.broadcast-container');
+  if (overlay)   { overlay.classList.remove('anim-visible'); overlay.style.bottom = ''; }
+  if (animLabel) { animLabel.textContent = ''; animLabel.classList.remove('label-show'); }
+  if (animImg)   { animImg.className = ''; animImg.style.opacity = ''; }
+  if (charEl)    { charEl.classList.remove('char-show'); }
+  if (container) { container.style.opacity = '1'; container.style.transition = ''; }
+}
+
+function _nextAnim() {
+  if (_animQueue.length === 0) { _animRunning = false; return; }
+  _animRunning = true;
+  var entry = _animQueue.shift();
+  _animKey = entry.key;
+  _playItemAnim(entry.src, entry.label || '', _nextAnim);
+}
+
+function _playItemAnim(src, label, done) {
+  var myToken = _animAbortToken;   // capture — if this changes we've been aborted
+
+  var overlay   = document.getElementById('item-anim-overlay');
+  var animImg   = document.getElementById('item-anim-img');
+  var animLabel = document.getElementById('item-anim-label');
+  var canvas    = document.getElementById('item-anim-canvas');
+  var container = document.querySelector('.broadcast-container');
+
+  // Clip overlay to stop above the bottom bar so it stays visible
+  var bar = document.querySelector('.bbg-bar');
+  var barH = bar ? bar.getBoundingClientRect().height : 0;
+  overlay.style.bottom = barH + 'px';
+
+  var overlayH = window.innerHeight - barH;
+  canvas.width  = window.innerWidth;
+  canvas.height = overlayH;
+
+  var peakScale = Math.round((overlayH / 40) * 10) / 10;
+  overlay.style.setProperty('--anim-peak-scale', peakScale);
+
+  animImg.src = src;
+  animImg.className = '';
+
+  var stopBg = _startAnimBg(canvas);
+  _animStopBgFn = stopBg;
+
+  container.style.transition = 'opacity 0.2s ease';
+  container.style.opacity = '0';
+  overlay.classList.add('anim-visible');
+
+  if (animLabel) {
+    animLabel.textContent = (SETTINGS.animShowLabel && label) ? label : '';
+    animLabel.classList.toggle('label-show', !!(SETTINGS.animShowLabel && label));
+  }
+
+  setTimeout(function() {
+    if (_animAbortToken !== myToken) return;
+    animImg.classList.add('phase-grow');
+    setTimeout(function() {
+      if (_animAbortToken !== myToken) return;
+      animImg.classList.remove('phase-grow');
+      void animImg.offsetWidth;
+      animImg.classList.add('phase-shrink');
+      setTimeout(function() {
+        if (_animAbortToken !== myToken) return;
+        stopBg();
+        _animStopBgFn = null;
+        overlay.classList.remove('anim-visible');
+        if (animLabel) { animLabel.classList.remove('label-show'); animLabel.textContent = ''; }
+        container.style.opacity = '1';
+        var slotImg = slotEls[_animKey] || null;
+        if (slotImg) {
+          slotImg.classList.remove('slot-bounce');
+          void slotImg.offsetWidth;
+          slotImg.classList.add('slot-bounce');
+          slotImg.addEventListener('animationend', function h() {
+            slotImg.classList.remove('slot-bounce');
+            slotImg.removeEventListener('animationend', h);
+          });
+        }
+        setTimeout(function() {
+          if (_animAbortToken !== myToken) return;
+          done();
+        }, 260);
+      }, 820);
+    }, 1420);
+  }, 220);
+}
+
+// When the animation background is 'random', pick one of the enabled pool
+// backgrounds fresh for each animation. Falls back to 'none' if none enabled.
+function pickRandomAnimBg() {
+  // Read the pool fresh from localStorage (written by the settings popout before
+  // it notifies) so an unchecked background is honoured immediately, without
+  // depending on the in-memory SETTINGS having been re-loaded yet.
+  var p = SETTINGS.animRandomPool || {};
+  try {
+    var raw = localStorage.getItem('alttp-broadcast-anim-random-pool');
+    if (raw) { var j = JSON.parse(raw); if (j && typeof j === 'object') p = j; }
+  } catch (e) {}
+  // Weighted: each checked entry's chance is its weight over the checked
+  // total (Chris, Oct 2026). A missing or bad weight counts as 1, so a pool
+  // saved before weights existed still picks evenly.
+  var w = SETTINGS.animRandomWeights || {};
+  try {
+    var rw = localStorage.getItem('alttp-broadcast-anim-random-weights');
+    if (rw) { var jw = JSON.parse(rw); if (jw && typeof jw === 'object') w = jw; }
+  } catch (e) {}
+  var pool = [], total = 0;
+  ['stars', 'starburst', 'matrix', 'triforce', 'lightning', 'image'].forEach(function (k) {
+    if (!p[k]) return;
+    var n = Number(w[k]);
+    if (!isFinite(n) || n < 0) n = 1;
+    n = Math.min(10, n);
+    if (n > 0) { pool.push([k, n]); total += n; }
+  });
+  if (!pool.length) return 'none';
+  var r = Math.random() * total;
+  for (var i = 0; i < pool.length; i++) { r -= pool[i][1]; if (r < 0) return pool[i][0]; }
+  return pool[pool.length - 1][0];
+}
+
+function _startAnimBg(canvas) {
+  var ctx = canvas.getContext('2d');
+  var W = canvas.width, H = canvas.height;
+  var stopped = false;
+  var rafId = null;
+  // Resolve the effective background once per animation (handles 'random').
+  var bg = SETTINGS.animBg === 'random' ? pickRandomAnimBg() : SETTINGS.animBg;
+  // Each animation carries its own colour theme, so pull the live colours from
+  // whichever background actually won — this is what makes 'random' use the
+  // right pair rather than the last one edited.
+  if (typeof applyAnimColorsFor === 'function') applyAnimColorsFor(bg);
+  // Image bg uses a real <img> layer (animates GIFs); hide it for other bgs.
+  var bgImgEl = document.getElementById('item-anim-bg-img');
+  if (bgImgEl) bgImgEl.style.display = 'none';
+
+  if (bg === 'stars') {
+    var NUM_STARS = 60;
+    var stars = [];
+    for (var i = 0; i < NUM_STARS; i++) { stars.push(_makeStarParticle(W, H, true)); }
+    function drawStars() {
+      if (stopped) { ctx.clearRect(0, 0, W, H); return; }
+      ctx.clearRect(0, 0, W, H);
+      for (var s = 0; s < stars.length; s++) {
+        var st = stars[s];
+        st.x += st.vx; st.y += st.vy; st.life -= 1;
+        if (st.x > W + 40 || st.y > H + 40 || st.life <= 0) { stars[s] = _makeStarParticle(W, H, false); continue; }
+        var col = (s % 2 === 0) ? SETTINGS.animColorA : SETTINGS.animColorB;
+        var alpha = Math.min(1, st.life / 20) * st.alpha;
+        var tailX = st.x - st.vx * st.tail, tailY = st.y - st.vy * st.tail;
+        var grad = ctx.createLinearGradient(tailX, tailY, st.x, st.y);
+        grad.addColorStop(0, 'rgba(0,0,0,0)');
+        grad.addColorStop(1, _hexToRgba(col, alpha));
+        ctx.beginPath(); ctx.moveTo(tailX, tailY); ctx.lineTo(st.x, st.y);
+        ctx.strokeStyle = grad; ctx.lineWidth = st.width; ctx.stroke();
+        ctx.beginPath(); ctx.arc(st.x, st.y, st.width * 0.8, 0, Math.PI * 2);
+        ctx.fillStyle = _hexToRgba(col, alpha); ctx.fill();
+      }
+      rafId = requestAnimationFrame(drawStars);
+    }
+    drawStars();
+  } else if (bg === 'starburst') {
+    var NUM_BEAMS = 16;
+    var startTime = performance.now();
+    var cx = W / 2, cy = H / 2;
+    var maxR = Math.sqrt(cx * cx + cy * cy) + 10;
+    function drawBurst(now) {
+      if (stopped) { ctx.clearRect(0, 0, W, H); return; }
+      var elapsed = (now - startTime) / 1000;
+      ctx.clearRect(0, 0, W, H);
+      var rotSpeed = 0.4, baseAngle = elapsed * rotSpeed;
+      var sliceAngle = (Math.PI * 2) / NUM_BEAMS;
+      for (var b = 0; b < NUM_BEAMS; b++) {
+        var a1 = baseAngle + b * sliceAngle, a2 = a1 + sliceAngle * 0.5;
+        var col = (b % 2 === 0) ? SETTINGS.animColorA : SETTINGS.animColorB;
+        var fadeAlpha = Math.min(1, elapsed / 0.3) * 0.55;
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, maxR, a1, a2); ctx.closePath();
+        ctx.fillStyle = _hexToRgba(col, fadeAlpha); ctx.fill();
+      }
+      var fadeR = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.min(W, H) * 0.32);
+      fadeR.addColorStop(0, 'rgba(0,0,0,0.85)'); fadeR.addColorStop(0.6, 'rgba(0,0,0,0.2)'); fadeR.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = fadeR; ctx.fillRect(0, 0, W, H);
+      rafId = requestAnimationFrame(drawBurst);
+    }
+    rafId = requestAnimationFrame(drawBurst);
+
+  } else if (bg === 'matrix') {
+    var FONT_SIZE = 16;
+    var HALF = FONT_SIZE / 2;
+    var COLS = Math.floor(W / FONT_SIZE);
+    var drops = [];
+    for (var ci = 0; ci < COLS; ci++) drops[ci] = Math.floor(Math.random() * -40);
+
+    // Symbol pool: 0=triforce, 1=sword, 3=bow, 4=heart, 5=key — triforce weighted 2:1
+    var TRIFORCE_TYPES = [0, 0, 1, 3, 4, 5];
+
+    function drawTriforce(type, cx, cy, color, alpha) {
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = alpha;
+      var s = FONT_SIZE * 0.72;
+
+      if (type === 0) {
+        var h = s*(Math.sqrt(3)/2), ts=s*0.5, th=ts*(Math.sqrt(3)/2), ths=ts/2;
+        var top = cy - h*0.5;
+        ctx.beginPath(); ctx.moveTo(cx,top); ctx.lineTo(cx-ths,top+th); ctx.lineTo(cx+ths,top+th); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(cx-ths,top+th); ctx.lineTo(cx-ths*2,top+th*2); ctx.lineTo(cx,top+th*2); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(cx+ths,top+th); ctx.lineTo(cx,top+th*2); ctx.lineTo(cx+ths*2,top+th*2); ctx.closePath(); ctx.fill();
+      } else if (type === 1) {
+        var bw=s*0.13, tip=cy-s*0.48, guard=cy+s*0.08, pommy=cy+s*0.48;
+        ctx.beginPath(); ctx.moveTo(cx,tip); ctx.lineTo(cx+bw,guard); ctx.lineTo(cx,guard+s*0.06); ctx.lineTo(cx-bw,guard); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(cx,guard+s*0.06); ctx.lineTo(cx+bw*0.6,pommy); ctx.lineTo(cx,pommy+s*0.04); ctx.lineTo(cx-bw*0.6,pommy); ctx.closePath(); ctx.fill();
+        ctx.lineWidth=s*0.10; ctx.lineCap='round';
+        ctx.beginPath(); ctx.moveTo(cx-s*0.32,guard); ctx.lineTo(cx+s*0.32,guard); ctx.stroke();
+      } else if (type === 3) {
+        var r=s*0.44, lw=s*0.09;
+        var bx1=cx-r*0.6, by1=cy-r*0.6, bx2=cx+r*0.6, by2=cy+r*0.6;
+        var bcx=cx-r*0.35, bcy=cy+r*0.35;
+        ctx.lineWidth=lw; ctx.lineCap='round';
+        ctx.beginPath(); ctx.moveTo(bx1,by1); ctx.quadraticCurveTo(bcx,bcy,bx2,by2); ctx.stroke();
+        ctx.lineWidth=lw*0.5;
+        ctx.beginPath(); ctx.moveTo(bx1,by1); ctx.lineTo(bx2,by2); ctx.stroke();
+        ctx.lineWidth=lw*0.7;
+        ctx.beginPath(); ctx.moveTo(bx1+(bx2-bx1)*0.1,by1+(by2-by1)*0.1); ctx.lineTo(bx1+(bx2-bx1)*0.85,by1+(by2-by1)*0.85); ctx.stroke();
+        var ax=bx1+(bx2-bx1)*0.85, ay=by1+(by2-by1)*0.85, ah=s*0.16;
+        ctx.fillStyle=color;
+        ctx.beginPath(); ctx.moveTo(ax+ah*0.5,ay+ah*0.5); ctx.lineTo(ax-ah*0.3,ay+ah*0.1); ctx.lineTo(ax+ah*0.1,ay-ah*0.3); ctx.closePath(); ctx.fill();
+        ctx.lineWidth=lw*0.6;
+        var fx=bx1+(bx2-bx1)*0.18, fy=by1+(by2-by1)*0.18;
+        ctx.beginPath(); ctx.moveTo(fx,fy); ctx.lineTo(fx-ah*0.4,fy-ah*0.6); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(fx,fy); ctx.lineTo(fx-ah*0.6,fy-ah*0.3); ctx.stroke();
+      } else if (type === 4) {
+        var hr=s*0.28, htop=cy-s*0.18;
+        ctx.beginPath();
+        ctx.arc(cx-hr*0.5,htop,hr,Math.PI,0);
+        ctx.arc(cx+hr*0.5,htop,hr,Math.PI,0);
+        ctx.lineTo(cx,cy+s*0.42);
+        ctx.closePath(); ctx.fill();
+      } else if (type === 5) {
+        var kcy=cy-s*0.12, khr=s*0.22, ksh=s*0.55, ksw=s*0.07;
+        ctx.beginPath(); ctx.arc(cx,kcy,khr,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle='rgba(0,0,0,0.75)';
+        ctx.beginPath(); ctx.arc(cx,kcy,khr*0.5,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle=color;
+        ctx.beginPath(); ctx.rect(cx-ksw,kcy+khr*0.85,ksw*2,ksh); ctx.fill();
+        ctx.beginPath(); ctx.rect(cx+ksw,kcy+khr*0.85+ksh*0.35,s*0.12,s*0.10); ctx.fill();
+        ctx.beginPath(); ctx.rect(cx+ksw,kcy+khr*0.85+ksh*0.60,s*0.10,s*0.09); ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    var colSymType = [];
+    for (var cs = 0; cs < COLS; cs++) colSymType[cs] = Math.floor(Math.random() * TRIFORCE_TYPES.length);
+
+    function drawMatrix(now) {
+      if (stopped) { ctx.clearRect(0, 0, W, H); return; }
+      ctx.fillStyle = 'rgba(0,0,0,0.08)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.font = FONT_SIZE + 'px monospace';
+      var pal3 = [SETTINGS.animColorA, SETTINGS.animColorB];
+      for (var col = 0; col < COLS; col++) {
+        var x = col * FONT_SIZE;
+        var y = drops[col] * FONT_SIZE;
+        var colColor = pal3[col % pal3.length];
+        var symType   = TRIFORCE_TYPES[Math.floor(Math.random() * TRIFORCE_TYPES.length)];
+        var trailType = TRIFORCE_TYPES[Math.floor(Math.random() * TRIFORCE_TYPES.length)];
+        if (y > 0)             drawTriforce(symType,   x + HALF, y - HALF,            colColor, 1.0);
+        if (y - FONT_SIZE > 0) drawTriforce(trailType, x + HALF, y - FONT_SIZE - HALF, colColor, 0.55);
+        drops[col]++;
+        if (drops[col] * FONT_SIZE > H && Math.random() > 0.975) drops[col] = 0;
+      }
+      ctx.globalAlpha = 1.0;
+      var matVig = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.min(W, H) * 0.38);
+      matVig.addColorStop(0,    'rgba(0,0,0,0.80)');
+      matVig.addColorStop(0.55, 'rgba(0,0,0,0.20)');
+      matVig.addColorStop(1,    'rgba(0,0,0,0)');
+      ctx.fillStyle = matVig;
+      ctx.fillRect(0, 0, W, H);
+      rafId = requestAnimationFrame(drawMatrix);
+    }
+    rafId = requestAnimationFrame(drawMatrix);
+
+  } else if (bg === 'triforce') {
+    // Triforces drifting UP with a slow spin and a lateral sway. The upward,
+    // rotating motion is what keeps it from reading like Falling Stars, which
+    // is a downward diagonal streak; these are solid shapes that turn.
+    var NUM_TRI = 20;
+    var tris = [];
+    function makeTri(scatter) {
+      return {
+        x:         Math.random() * W,
+        y:         scatter ? Math.random() * H : H + 30 + Math.random() * 80,
+        size:      11 + Math.random() * 26,
+        vy:        0.22 + Math.random() * 0.55,
+        rot:       0,
+        wob:       Math.random() * Math.PI * 2,
+        wobSpeed:  0.010 + Math.random() * 0.018,
+        wobAmp:    0.10 + Math.random() * 0.22,   // radians — a tilt, not a spin
+        sway:      Math.random() * Math.PI * 2,
+        swaySpeed: 0.007 + Math.random() * 0.015,
+        swayAmp:   5 + Math.random() * 16,
+        alpha:     0.22 + Math.random() * 0.5,
+        pulse:     Math.random() * Math.PI * 2,
+        useB:      Math.random() < 0.4
+      };
+    }
+    for (var ti = 0; ti < NUM_TRI; ti++) tris.push(makeTri(true));
+
+    // A triforce of side `s`, centred on the current origin. Three sub-triangles
+    // of side s/2, with the middle one left empty.
+    function triforcePath(s) {
+      var h  = s * (Math.sqrt(3) / 2);
+      var q  = s / 4, hh = h / 2;
+      ctx.beginPath(); ctx.moveTo(0, -hh);  ctx.lineTo(-q, 0);    ctx.lineTo(q, 0);     ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-q, 0);   ctx.lineTo(-s/2, hh); ctx.lineTo(0, hh);    ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(q, 0);    ctx.lineTo(0, hh);    ctx.lineTo(s/2, hh);  ctx.closePath(); ctx.fill();
+    }
+
+    function drawTriforceBg() {
+      if (stopped) { ctx.clearRect(0, 0, W, H); return; }
+      ctx.clearRect(0, 0, W, H);
+      for (var t = 0; t < tris.length; t++) {
+        var tr = tris[t];
+        tr.y    -= tr.vy;
+        tr.wob  += tr.wobSpeed;
+        tr.rot   = Math.sin(tr.wob) * tr.wobAmp;
+        tr.sway += tr.swaySpeed;
+        tr.pulse += 0.03;
+        if (tr.y + tr.size < -40) { tris[t] = makeTri(false); continue; }
+        var col = tr.useB ? SETTINGS.animColorB : SETTINGS.animColorA;
+        // Fade in at the bottom and out at the top so nothing pops.
+        var edge = Math.min(1, (H - tr.y) / 60, (tr.y + tr.size) / 60);
+        var a    = tr.alpha * Math.max(0, edge) * (0.78 + 0.22 * Math.sin(tr.pulse));
+        ctx.save();
+        ctx.translate(tr.x + Math.sin(tr.sway) * tr.swayAmp, tr.y);
+        ctx.rotate(tr.rot);
+        ctx.shadowColor = _hexToRgba(col, Math.min(0.9, a + 0.2));
+        ctx.shadowBlur  = tr.size * 0.55;
+        ctx.fillStyle   = _hexToRgba(col, a);
+        triforcePath(tr.size);
+        ctx.restore();
+      }
+      var triVig = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.min(W, H) * 0.40);
+      triVig.addColorStop(0,   'rgba(0,0,0,0.62)');
+      triVig.addColorStop(0.6, 'rgba(0,0,0,0.18)');
+      triVig.addColorStop(1,   'rgba(0,0,0,0)');
+      ctx.fillStyle = triVig;
+      ctx.fillRect(0, 0, W, H);
+      rafId = requestAnimationFrame(drawTriforceBg);
+    }
+    rafId = requestAnimationFrame(drawTriforceBg);
+
+  } else if (bg === 'lightning') {
+    // Forked lightning against a dark sky — no rain. A strike is a branching
+    // bolt played back through a flicker envelope (bright, dark, bright again)
+    // rather than a single frame, which is what makes it read as lightning.
+    // Some strikes are "distant": a soft full-screen flash with no bolt.
+    var FLICKER = [1, 0.92, 0.45, 0, 0, 0.88, 0.7, 0.32, 0, 0, 0.62, 0.44, 0.26, 0.13, 0.05, 0];
+    var bolt = null;        // { segs: [{pts,w}], frame: n }
+    var glow = 0;           // soft afterglow, decays
+    var distant = 0;        // distant-flash intensity, decays
+    // The item animation is only on screen for about 2.5s, so the first strike
+    // has to land almost immediately and the gaps have to be short — otherwise
+    // the whole animation can play out on an empty sky.
+    var nextStrike = 2;
+
+    // Slow drifting cloud banks so the frame is never completely dead between
+    // strikes, and so a flash has something to light up.
+    var clouds = [];
+    for (var ci2 = 0; ci2 < 5; ci2++) {
+      clouds.push({
+        x: Math.random() * (W + 200) - 100,
+        y: H * (0.05 + Math.random() * 0.35),
+        r: 55 + Math.random() * 95,
+        vx: 0.10 + Math.random() * 0.28,
+        a: 0.06 + Math.random() * 0.07
+      });
+    }
+
+    function buildBolt() {
+      var segs = [];
+      var endY = H * (0.62 + Math.random() * 0.45);
+      function walk(x, y, stopY, width, jitter, depth) {
+        var pts = [[x, y]];
+        var guard = 0;
+        while (y < stopY && guard++ < 60) {
+          y += 9 + Math.random() * 20;
+          x += (Math.random() - 0.5) * jitter;
+          pts.push([x, y]);
+          if (depth < 2 && width > 1.1 && Math.random() < 0.15) {
+            walk(x, y, y + (stopY - y) * (0.3 + Math.random() * 0.45), width * 0.55, jitter * 0.85, depth + 1);
+          }
+        }
+        segs.push({ pts: pts, w: width });
+      }
+      walk(50 + Math.random() * Math.max(20, W - 100), -12, endY, 2.6, 38, 0);
+      return { segs: segs, frame: 0 };
+    }
+
+    function strokeBolt(intensity) {
+      for (var s2 = 0; s2 < bolt.segs.length; s2++) {
+        var sg = bolt.segs[s2];
+        ctx.beginPath();
+        ctx.moveTo(sg.pts[0][0], sg.pts[0][1]);
+        for (var q2 = 1; q2 < sg.pts.length; q2++) ctx.lineTo(sg.pts[q2][0], sg.pts[q2][1]);
+        // Wide soft halo first, then the bright core over the top.
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.strokeStyle = _hexToRgba(SETTINGS.animColorA, 0.16 * intensity);
+        ctx.lineWidth   = sg.w * 7;
+        ctx.stroke();
+        ctx.strokeStyle = _hexToRgba(SETTINGS.animColorA, 0.34 * intensity);
+        ctx.lineWidth   = sg.w * 3;
+        ctx.stroke();
+        ctx.strokeStyle = _hexToRgba(SETTINGS.animColorB, intensity);
+        ctx.lineWidth   = sg.w * 1.5;
+        ctx.stroke();
+      }
+    }
+
+    function drawLightning() {
+      if (stopped) { ctx.clearRect(0, 0, W, H); return; }
+      ctx.clearRect(0, 0, W, H);
+
+      // Sky haze from the top, brightened while anything is lit.
+      var lit = glow + distant;
+      var sky = ctx.createLinearGradient(0, 0, 0, H);
+      sky.addColorStop(0, _hexToRgba(SETTINGS.animColorA, 0.05 + lit * 0.14));
+      sky.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, W, H);
+
+      for (var cd = 0; cd < clouds.length; cd++) {
+        var cl = clouds[cd];
+        cl.x += cl.vx;
+        if (cl.x - cl.r > W + 40) { cl.x = -cl.r - 40; cl.y = H * (0.05 + Math.random() * 0.35); }
+        var cg = ctx.createRadialGradient(cl.x, cl.y, 0, cl.x, cl.y, cl.r);
+        cg.addColorStop(0, _hexToRgba(SETTINGS.animColorA, cl.a + lit * 0.16));
+        cg.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = cg;
+        ctx.fillRect(cl.x - cl.r, cl.y - cl.r, cl.r * 2, cl.r * 2);
+      }
+
+      if (distant > 0) {
+        ctx.fillStyle = _hexToRgba(SETTINGS.animColorB, distant * 0.13);
+        ctx.fillRect(0, 0, W, H);
+        distant -= 0.045; if (distant < 0) distant = 0;
+      }
+
+      if (bolt) {
+        var f = FLICKER[bolt.frame] || 0;
+        if (f > 0) {
+          ctx.fillStyle = _hexToRgba(SETTINGS.animColorB, f * 0.13);
+          ctx.fillRect(0, 0, W, H);
+          strokeBolt(f);
+          glow = Math.max(glow, f * 0.8);
+        }
+        bolt.frame++;
+        if (bolt.frame >= FLICKER.length) bolt = null;
+      }
+
+      if (glow > 0) { glow -= 0.03; if (glow < 0) glow = 0; }
+
+      if (--nextStrike <= 0) {
+        if (Math.random() < 0.35) {
+          distant = 1;                                  // sheet flash, no bolt
+          nextStrike = 12 + Math.floor(Math.random() * 24);
+        } else {
+          bolt = buildBolt();
+          nextStrike = 22 + Math.floor(Math.random() * 40);
+        }
+      }
+
+      var ltVig = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.min(W, H) * 0.42);
+      ltVig.addColorStop(0,   'rgba(0,0,0,0.55)');
+      ltVig.addColorStop(0.6, 'rgba(0,0,0,0.16)');
+      ltVig.addColorStop(1,   'rgba(0,0,0,0)');
+      ctx.fillStyle = ltVig;
+      ctx.fillRect(0, 0, W, H);
+
+      rafId = requestAnimationFrame(drawLightning);
+    }
+    rafId = requestAnimationFrame(drawLightning);
+
+  } else if (bg === 'image') {
+    // Show the image via the <img> layer (animated GIFs animate here; a canvas
+    // drawImage would only ever render the first frame).
+    if (bgImgEl) {
+      bgImgEl.src = SETTINGS.animBgImage || 'items/triforce.jpg';
+      bgImgEl.style.display = 'block';
+    }
+  } else {
+    ctx.clearRect(0, 0, W, H);
+  }
+
+  return function stop() {
+    stopped = true;
+    if (rafId) cancelAnimationFrame(rafId);
+    ctx.clearRect(0, 0, W, H);
+    if (bgImgEl) bgImgEl.style.display = 'none';
+  };
+}
+
+function _makeStarParticle(W, H, scatter) {
+  var speed = 4 + Math.random() * 6;
+  var angle = Math.PI / 4 + (Math.random() - 0.5) * 0.3;
+  var x, y;
+  if (scatter) { x = Math.random() * W; y = Math.random() * H; }
+  else if (Math.random() < 0.5) { x = Math.random() * W; y = -10; }
+  else { x = -10; y = Math.random() * H; }
+  return { x:x, y:y, vx:Math.cos(angle)*speed, vy:Math.sin(angle)*speed,
+           width:1+Math.random()*2, tail:4+Math.random()*6, alpha:0.5+Math.random()*0.5, life:40+Math.floor(Math.random()*60) };
+}
+
+function _hexToRgba(hex, alpha) {
+  var r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return 'rgba('+r+','+g+','+b+','+alpha.toFixed(3)+')';
+}
+
+// ── Per-item sounds ───────────────────────────────────────────────────────
+function playItemSound(key, val) {
+  if (RACE_MODE) return; // Race Mode: no item collect sounds.
+  try {
+    // Check level-specific sound first (e.g. 'sword-2' for Master Sword),
+    // then fall back to the base key sound (e.g. 'sword' for any sword).
+    // Sound profiles: profile 1 uses the original unprefixed keys, 2 and 3
+    // prefix theirs (see bcast-sounds.html). Read fresh each time so switching
+    // profiles takes effect without reopening the broadcast view.
+    var _p = parseInt(localStorage.getItem('alttp-sound-profile') || '1', 10);
+    if (_p === 5) return;                       // "No Sounds" profile
+    var _pre = 'alttp-item-sound-' + ((_p >= 2 && _p <= 4) ? 'p' + _p + '-' : '');
+    // Which entry answered matters now: the volume lives beside that sound.
+    var _sk = (val !== undefined && localStorage.getItem(_pre + key + '-' + val))
+            ? (_pre + key + '-' + val) : (_pre + key);
+    var dataUrl = localStorage.getItem(_sk);
+    if (!dataUrl) return;
+    var a = new Audio(dataUrl);
+    a.volume = soundVolume(_sk);
+    a.play().catch(function() {});
+  } catch(e) {}
+}
+
+function openItemSounds() {
+  if (RACE_MODE) return; // disabled in Race Mode
+  if (window.electronAPI && window.electronAPI.openBcastSounds) {
+    window.electronAPI.openBcastSounds();
+  } else {
+    window.open('bcast-sounds.html', 'alttp-bcast-sounds', 'width=480,height=620,resizable=yes');
+  }
+}
+
+// Open the broadcast settings popout (Electron native window, or a browser
+// window as fallback). The popout writes SETTINGS to localStorage and pings
+// this view via the 'bcast-settings-changed' BroadcastChannel message.
+function openSettingsPopout() {
+  if (window.electronAPI && window.electronAPI.openBcastSettings) {
+    window.electronAPI.openBcastSettings();
+  } else {
+    window.open('bcast-settings.html', 'alttp-bcast-settings', 'width=440,height=820,resizable=yes,scrollbars=yes');
+  }
+}
+
+// Reflect Race Mode in the UI: disable the Item Sounds button when racing.
+function updateRaceModeUI() {
+  var btn = document.getElementById('item-sounds-btn');
+  if (btn) {
+    btn.disabled = RACE_MODE;
+    btn.title = RACE_MODE ? 'Disabled in Race Mode' : '';
+  }
+}
+
+// ── BroadcastChannel ─────────────────────────────────────────────────────
+try {
+  var bc = new BroadcastChannel('alttp-tracker');
+  bc.onmessage = function(e) {
+    if (!e.data) return;
+    if (e.data.type==='items'||e.data.type==='snap') {
+      var _snapData = e.data.data||e.data;
+      // Keep Race Mode in sync live, even if this window opened before it was set.
+      if (_snapData && typeof _snapData.raceMode === 'boolean' && _snapData.raceMode !== RACE_MODE) {
+        RACE_MODE = _snapData.raceMode;
+        updateRaceModeUI();
+        applyCurrentDungeon();
+      }
+      applySnapCoalesced(_snapData);
+    }
+    else if (e.data.type==='prizes') applyPrizesCoalesced(e.data.data);
+    else if (e.data.type==='stats') {
+      if(slotEls['stat_check'])slotEls['stat_check'].textContent=e.data.checks||0;
+      if(slotEls['stat_death'])slotEls['stat_death'].textContent=e.data.deaths||0;
+      if(slotEls['stat_bonk']) slotEls['stat_bonk'].textContent =e.data.bonks ||0;
+    }
+    else if (e.data.type==='newgame') resetAll();
+    else if (e.data.type==='bcast-settings-changed') applyAllSettings();
+    // Seed settings from the map's gear menu. Belt to the storage event's
+    // braces — neither is reliable alone across Electron windows.
+    else if (e.data.type==='worldstate' || e.data.type==='swordless' || e.data.type==='setting') {
+      refreshSeedSettings();
+    }
+  };
+} catch(err) { console.error('BroadcastChannel error:', err); }
+
+// Re-apply all view-affecting settings after the popout changes them. Reloads
+// SETTINGS from localStorage (shared with the popout) then re-renders. bg is
+// read from the saved value so popout bg changes take effect (the launch URL
+// bg only seeds the initial load).
+function applyAllSettings() {
+  var prevViewStyle = SETTINGS.viewStyle;
+  loadSettings();
+  try {
+    var savedBg = localStorage.getItem('alttp-broadcast-bg');
+    applyBg(savedBg || SETTINGS.bg);
+    applyFillVariable();
+    applyDungeonColors();
+    applyDungeonBox();
+    applyCurrentDungeon();
+    applyDungeonVisibility();
+    refreshAllFills();
+    if (SETTINGS.viewStyle !== prevViewStyle) rebuildRows();
+  } catch (e) { console.error('applyAllSettings error:', e); }
+}
+
+// ── Go Mode Sparklines ────────────────────────────────────────────────────
+var _gomodeSparkRaf  = null;
+var _gomodeSparkStop = false;
+
+function startGomodeSparks() {
+  _gomodeSparkStop = false;
+  var canvas = document.getElementById('gomode-spark-canvas');
+  if (!canvas) return;
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+  canvas.classList.add('active');
+  var ctx = canvas.getContext('2d');
+
+  var SPARK_PALETTE = (SETTINGS.sparkColors && SETTINGS.sparkColors.length)
+    ? SETTINGS.sparkColors
+    : ['#22cc55','#66ff88','#aaffbb','#4488ff','#88bbff','#cc44ff'];
+  var SPARK_TRAIL = 16;
+  var SPARK_SPEED = 2.0;
+  var SPARK_SIZE  = 3;
+
+  var _comboSubKeys = {};
+  Object.keys(COMBO_SLOTS).forEach(function(ck) {
+    COMBO_SLOTS[ck].keys.forEach(function(sk) { _comboSubKeys[sk] = ck; });
+  });
+
+  function getSlotRects() {
+    var rects = [];
+    var seenCombos = {};
+    Object.keys(slotContainers).forEach(function(key) {
+      if (key === 'gomode' || key === 'stats' || key === 'bottles' || key === 'agahnim') return;
+      var val = _appliedItemState[key];
+      if (!val || val <= 0) return;
+      var comboKey = _comboSubKeys[key];
+      if (comboKey) {
+        var subEl = slotContainers[key];
+        if (subEl && subEl.classList && subEl.classList.contains('bcombo-img')) {
+          if (seenCombos[comboKey]) return;
+          var anyCollected = COMBO_SLOTS[comboKey].keys.some(function(sk) {
+            return (_appliedItemState[sk] || 0) > 0;
+          });
+          if (!anyCollected) return;
+          seenCombos[comboKey] = true;
+          var parentEl = subEl.parentElement;
+          if (!parentEl) return;
+          var r = parentEl.getBoundingClientRect();
+          if (r.width >= 4) rects.push({ x: r.left, y: r.top, w: r.width, h: r.height });
+          return;
+        }
+      }
+      var el = slotContainers[key];
+      if (!el) return;
+      // For right-column slots (.bright-slot), trace the inner icon img, not the wide container
+      var targetEl = (el.classList && el.classList.contains('bright-slot'))
+        ? (el.querySelector('img') || el) : el;
+      var r = targetEl.getBoundingClientRect();
+      if (r.width < 4 || r.height < 4) return;
+      rects.push({ x: r.left, y: r.top, w: r.width, h: r.height });
+    });
+    var anyBottle = ['bottle1','bottle2','bottle3','bottle4'].some(function(b){ return (_appliedItemState[b]||0) > 0; });
+    if (anyBottle && slotContainers['bottles']) {
+      var r = slotContainers['bottles'].getBoundingClientRect();
+      if (r.width >= 4) rects.push({ x: r.left, y: r.top, w: r.width, h: r.height });
+    }
+    return rects;
+  }
+
+  function makeSparkForRect(rect, tOffset) {
+    return { rect: rect, t: tOffset || 0, trail: [] };
+  }
+
+  function perimPoint(rect, t) {
+    var w = rect.w, h = rect.h;
+    var perim = 2 * (w + h);
+    t = ((t % perim) + perim) % perim;
+    if (t < w)  return { x: rect.x + t,        y: rect.y };
+    t -= w;
+    if (t < h)  return { x: rect.x + w,         y: rect.y + t };
+    t -= h;
+    if (t < w)  return { x: rect.x + w - t,     y: rect.y + h };
+    t -= w;
+                return { x: rect.x,              y: rect.y + h - t };
+  }
+
+  var sparks = [];
+  var rects  = getSlotRects();
+  rects.forEach(function(rect) { sparks.push(makeSparkForRect(rect, 0)); });
+  var frameCount = 0;
+
+  function draw() {
+    if (_gomodeSparkStop) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      canvas.classList.remove('active');
+      return;
+    }
+    frameCount++;
+    if (frameCount % 30 === 0) {
+      canvas.width  = window.innerWidth;
+      canvas.height = window.innerHeight;
+      var newRects = getSlotRects();
+      if (newRects.length !== rects.length) {
+        var syncT = sparks.length > 0 ? sparks[0].t : 0;
+        rects = newRects;
+        sparks = rects.map(function(rect) {
+          var existing = sparks.find(function(s) {
+            return Math.abs(s.rect.x - rect.x) < 2 && Math.abs(s.rect.y - rect.y) < 2;
+          });
+          return existing ? Object.assign(existing, { rect: rect }) : makeSparkForRect(rect, syncT);
+        });
+      } else {
+        rects = newRects;
+        sparks = rects.map(function(rect) {
+          var existing = sparks.find(function(s) {
+            return Math.abs(s.rect.x - rect.x) < 2 && Math.abs(s.rect.y - rect.y) < 2;
+          });
+          return existing ? Object.assign(existing, { rect: rect }) : makeSparkForRect(rect, sparks.length > 0 ? sparks[0].t : 0);
+        });
+      }
+    }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    sparks.forEach(function(spark) {
+      spark.t += SPARK_SPEED;
+      var pos = perimPoint(spark.rect, spark.t);
+      spark.trail.push({ x: pos.x, y: pos.y });
+      if (spark.trail.length > SPARK_TRAIL) spark.trail.shift();
+      var perim = 2 * (spark.rect.w + spark.rect.h);
+      for (var i = 0; i < spark.trail.length; i++) {
+        var alpha = (i + 1) / spark.trail.length;
+        var p = spark.trail[i];
+        var tPos = ((spark.t - (spark.trail.length - i) * SPARK_SPEED) % perim + perim) % perim;
+        var colorIdx = Math.floor((tPos / perim) * SPARK_PALETTE.length) % SPARK_PALETTE.length;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, SPARK_SIZE * alpha, 0, Math.PI * 2);
+        ctx.fillStyle = SPARK_PALETTE[colorIdx];
+        ctx.globalAlpha = alpha * 0.9;
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    });
+    _gomodeSparkRaf = requestAnimationFrame(draw);
+  }
+
+  if (_gomodeSparkRaf) cancelAnimationFrame(_gomodeSparkRaf);
+  _gomodeSparkRaf = requestAnimationFrame(draw);
+}
+
+function stopGomodeSparks() {
+  _gomodeSparkStop = true;
+  if (_gomodeSparkRaf) { cancelAnimationFrame(_gomodeSparkRaf); _gomodeSparkRaf = null; }
+  var canvas = document.getElementById('gomode-spark-canvas');
+  if (canvas) {
+    canvas.classList.remove('active');
+    var ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+}
+
+// ── Broadcast scale ──────────────────────────────────────────────────────
+var _bcastScale = parseInt(localStorage.getItem('bcast-scale') || '100', 10);
+function _applyBcastScale() {
+  var el = document.querySelector('.broadcast-container');
+  if (!el) return;
+  el.style.transformOrigin = 'top left';
+  el.style.transform = (_bcastScale === 100) ? '' : 'scale(' + (_bcastScale / 100).toFixed(2) + ')';
+}
+function bcastSizeDown() { _bcastScale = Math.max(10, _bcastScale - 2); localStorage.setItem('bcast-scale', _bcastScale); _applyBcastScale(); }
+function bcastSizeUp()   { _bcastScale = Math.min(300, _bcastScale + 2); localStorage.setItem('bcast-scale', _bcastScale); _applyBcastScale(); }
+
+// ── Init ─────────────────────────────────────────────────────────────────
+function _init() {
+  loadSettings();
+  updateRaceModeUI();
+  applyFillVariable();
+  applyDungeonColors();
+  buildRows();
+  _applyBcastScale();
+  applyDungeonVisibility();
+  applyBg(SETTINGS.bg);
+  setTimeout(function() {
+    try { new BroadcastChannel('alttp-tracker').postMessage({type:'requestSnap'}); } catch(e) {}
+  }, 500);
+}
+
+// If in Electron, resolve the real items path first so BASE is correct before buildRows
+if (window.electronAPI && window.electronAPI.getPaths) {
+  window.electronAPI.getPaths().then(function(paths) {
+    if (paths && paths.itemsUrl) BASE = paths.itemsUrl;
+    _init();
+  }).catch(function() { _init(); });
+} else {
+  _init();
+}
+</script>
+</body>
+</html>

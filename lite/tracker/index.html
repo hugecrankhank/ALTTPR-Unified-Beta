@@ -1,0 +1,3026 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ALTTP Randomizer Tracker</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  font-family: Arial, sans-serif;
+  max-width: 760px; margin: 10px auto; padding: 10px;
+  background: #0d0d0d; color: #ccc;
+}
+h1 { text-align: center; color: #4dff88; font-size: 22px; margin-bottom: 4px; letter-spacing: 1px; }
+/* Version line sits tight under the title — its own margins replace the gap
+   that used to come from h1's margin-bottom collapsing with a default <p>. */
+.version-line { text-align: center; margin: 0 0 14px; }
+.section {
+  background: #1a1a1a; border: 1px solid #2a2a2a;
+  border-radius: 6px; padding: 10px 10px; margin-bottom: 8px;
+}
+.section h2 { margin: 0 0 12px; color: #7ab8f5; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
+.row { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+/* The last row in a section doesn't need to push against the padding. */
+.section > .row:last-child { margin-bottom: 0; }
+/* Fixed label column so every dropdown in every section shares one left edge
+   and one width. 152px clears the longest label ("Ganon's Tower Requirement"
+   at ~151.5px) — widen this if a longer label is ever added. */
+.row label { color: #666; font-size: 12px; flex: 0 0 152px; min-width: 152px; }
+input, select {
+  background: #111; color: #ccc; border: 1px solid #333;
+  border-radius: 4px; padding: 5px 8px; font-size: 12px; flex: 1;
+}
+input:focus, select:focus { outline: none; border-color: #4dff88; }
+.info { color: #444; font-size: 10px; margin-top: 2px; margin-bottom: 10px; padding-left: 90px; }
+.btn-row { display: flex; gap: 10px; margin-top: 8px; }
+.launch-btn {
+  flex: 1; padding: 12px;
+  font-size: 14px; font-weight: bold; cursor: pointer;
+  border: none; border-radius: 6px; transition: background 0.2s;
+}
+#btn-items { background: #1a4a2a; color: #4dff88; border: 1px solid #2a7a3a; }
+#btn-items:hover { background: #2a6a3a; }
+#btn-map   { background: #1a2e4a; color: #7ab8f5; border: 1px solid #2a4e7a; }
+#btn-map:hover   { background: #2a4a6a; }
+#btn-both  { background: #3a2a00; color: #ffd700; border: 1px solid #7a5a00; }
+#btn-both:hover  { background: #5a4000; }
+/* Sized down from a launch button: the Timer card sits beside Display and
+   should end level with it rather than towering over it. */
+#btn-timer { background: #2a0a3a; color: #c084fc; border: 1px solid #6a2a9a;
+             padding: 6px 10px; font-size: 13px; }
+.timer-note { padding-left: 2px; margin-top: 5px; color: #8353d5;
+              font-style: italic; font-size: 11px; line-height: 1.3; }
+#btn-timer:hover { background: #4a1a6a; }
+.divider { border: none; border-top: 1px solid #222; margin: 4px 0 12px; }
+.user-guide-btn {
+  flex: 1; padding: 8px;
+  font-size: 12px; font-weight: bold; cursor: pointer;
+  border: 1px solid #333; border-radius: 6px; transition: background 0.2s;
+  background: #1a1a1a; color: #888;
+}
+.user-guide-btn:hover { background: #2a2a2a; color: #ccc; }
+
+/* ── Yes/No toggle slider (compact, thumb flush left/right, no inline text) ── */
+.toggle-row { display: flex; align-items: center; gap: 8px; }
+/* One-click OnlyADKD: it sets that mode's options and launches, so it lives
+   next to Entrance Shuffle rather than in the preset list. */
+.mini-launch {
+  margin-left: auto; background: #2d6cdf; border: 0; color: #fff;
+  border-radius: 4px; padding: 3px 10px; font-size: 11px; cursor: pointer;
+}
+.mini-launch:hover { background: #3b7cf0; }
+/* Toggle rows use a narrower label column than the dropdown rows above — they
+   sit beside the Preset panel, so 152px would squeeze it. 96px clears the
+   longest label ("Entrance Shuffle" at ~88.5px) and lines every slider up. */
+.toggle-row > label:not(.toggle-switch) { flex: 0 0 96px; min-width: 96px; }
+.row label.toggle-switch {
+  position: relative; display: inline-block;
+  width: 32px; height: 18px; min-width: 32px; flex: 0 0 auto;
+}
+.toggle-switch input {
+  opacity: 0; width: 0; height: 0; position: absolute;
+  padding: 0; margin: 0; border: none; background: none; flex: none;
+}
+.toggle-slider {
+  position: absolute; cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: #444; border: 1px solid #555;
+  border-radius: 18px; transition: background 0.15s, border-color 0.15s;
+  box-sizing: border-box;
+}
+.toggle-slider::before {
+  content: ""; position: absolute;
+  height: 14px; width: 14px; left: 1px; top: 1px;
+  background: #ccc; border-radius: 50%;
+  transition: transform 0.15s, background 0.15s;
+}
+.toggle-switch input:checked + .toggle-slider {
+  background: #2255dd; border-color: #2255dd;
+}
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(14px);
+  background: #fff;
+}
+.toggle-switch input:focus-visible + .toggle-slider {
+  outline: 2px solid #4dff88; outline-offset: 2px;
+}
+.toggle-label-text { font-size: 11px; font-weight: bold; color: #888; min-width: 20px; }
+.toggle-switch input:checked ~ .toggle-label-text,
+.toggle-label-text.active { color: #ccc; }
+
+/* ── Toggles + Presets side-by-side layout ── */
+.toggles-presets-wrap { display: flex; align-items: flex-start; gap: 16px; }
+.toggles-col { display: flex; flex-direction: column; flex: 0 0 auto; }
+/* ── Seed link loader ── */
+.seed-link-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.seed-link-row label { flex: 0 0 auto; min-width: 0; color: #666; font-size: 12px; }
+#seed-link {
+  flex: 1; min-width: 0;
+  background: #111; color: #ccc; border: 1px solid #333;
+  border-radius: 4px; padding: 5px 8px; font-size: 11px;
+}
+#seed-link:focus { outline: none; border-color: #4dff88; }
+#seed-link-btn {
+  flex: 0 0 auto; padding: 5px 12px; font-size: 12px; font-weight: bold;
+  cursor: pointer; background: #1a2e4a; color: #7ab8f5;
+  border: 1px solid #2a4e7a; border-radius: 4px; transition: background 0.15s;
+}
+#seed-link-btn:hover { background: #2a4a6a; }
+#seed-link-btn:disabled { opacity: 0.5; cursor: default; }
+/* Collapses to nothing when empty so it doesn't pad the gap above the
+   checkboxes. Kept to a single line — the launcher window is a fixed 950px
+   and a wrapping two-line error was enough to bring back a scrollbar. The
+   full text is always on the element's title attribute. */
+#seed-link-status {
+  font-size: 10px; line-height: 1.4; color: #666;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#seed-link-status:not(:empty) { margin-top: 4px; }
+#seed-link-status.ok  { color: #4dff88; }
+#seed-link-status.err { color: #f57a7a; }
+
+/* Seed-flag checkboxes. A 3-column grid rather than a wrapping flex row, so
+   the second row lines up under the first instead of packing to content. */
+/* Four seed flags across one row. Kept to a single line on purpose — a second
+   row costs ~20px and the window is a fixed 950px with no slack (see
+   launcher-layout.md). The columns are auto-sized rather than equal fifths so
+   the long label ("Universal Keys") isn't forced to wrap while "Key Drop"
+   wastes half its cell. */
+/* Dungeon Item Shuffle: the same button-and-panel as Other Settings, so the
+   four flags cost one row rather than two. */
+#dshuf-btn {
+  width: 100%; text-align: left; cursor: pointer;
+  background: #1a1a1a; color: #ccc;
+  border: 1px solid #333; border-radius: 4px;
+  padding: 5px 8px; font-size: 13px; font-family: inherit;
+  display: flex; align-items: center; justify-content: space-between;
+}
+#dshuf-btn:hover { border-color: #555; }
+#dshuf-btn .osb-caret { color: #666; font-size: 10px; }
+#dshuf-panel {
+  display: none;
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+  background: #1a1a1a; border: 1px solid #3a3a3a;
+  border-radius: 5px; padding: 8px 10px; z-index: 200;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.7);
+}
+#dshuf-panel.open { display: block; }
+#dshuf-panel .check-row { display: flex; margin: 5px 0; }
+/* 'Other' is a display mode rather than a shuffle, so it sits apart. */
+#dshuf-other-row { border-top: 1px solid #2a2a2a; margin-top: 7px !important; padding-top: 7px; }
+.check-row { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-size: 11.5px; color: #666; user-select: none; white-space: nowrap; }
+.check-row input[type="checkbox"] { width: 13px; height: 13px; accent-color: #4dff88; cursor: pointer; margin: 0; flex: 0 0 auto; }
+.presets-col {
+  flex: 1; display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 10px; margin-top: 2px;
+  background: #151515; border: 1px solid #262626; border-radius: 5px;
+}
+.presets-label {
+  font-size: 11px; color: #666; text-transform: uppercase;
+  letter-spacing: 0.5px; margin-bottom: 2px;
+}
+#preset-select { flex: 1; min-width: 0; }
+.preset-select-row { display: flex; gap: 4px; }
+#preset-fav-btn {
+  flex: 0 0 auto; padding: 0 7px; font-size: 14px; line-height: 1; cursor: pointer;
+  background: #1a1a1a; color: #777; border: 1px solid #333; border-radius: 4px;
+}
+#preset-fav-btn.on { color: #ffd700; border-color: #5a5a1a; }
+#preset-fav-btn:disabled { opacity: .35; cursor: default; }
+/* The seed hash, rendered as the game's own five file-select icons. */
+#seed-link-status .seed-hash-icon  { height: 22px; width: auto; vertical-align: middle;
+                                     margin-right: 2px; image-rendering: pixelated; }
+#seed-link-status .seed-hash-emoji { font-size: 18px; vertical-align: middle; margin-right: 2px; }
+#seed-link-status .seed-hash-name  { margin-right: 4px; opacity: .85; }
+#seed-link-status .seed-hash-text  { margin-left: 6px; vertical-align: middle; opacity: .85; }
+.preset-btn {
+  width: 100%; padding: 6px 8px; font-size: 12px; font-weight: bold;
+  cursor: pointer; background: #2a2a14; color: #ffd700;
+  border: 1px solid #5a5a1a; border-radius: 4px;
+  transition: background 0.15s;
+}
+.preset-btn:hover { background: #4a4a20; }
+.preset-btn-save {
+  background: #16241a; color: #7ab8f5;
+  border: 1px solid #2a4e7a; font-size: 11px;
+}
+.preset-btn-save:hover { background: #1f3550; }
+.preset-btn-delete {
+  background: #2e1a1a; color: #f57a7a;
+  border: 1px solid #7a2a2a; font-size: 11px;
+}
+.preset-btn-delete:hover { background: #3f1f1f; }
+
+/* ── Preset name modal ── */
+#preset-modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.65); z-index: 999;
+  align-items: center; justify-content: center;
+}
+#preset-modal-overlay.open { display: flex; }
+#preset-modal {
+  background: #1a1a1a; border: 1px solid #444; border-radius: 6px;
+  padding: 16px; width: 240px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+#preset-modal label { font-size: 12px; color: #999; }
+#preset-modal-input {
+  background: #111; color: #ccc; border: 1px solid #444;
+  border-radius: 4px; padding: 6px 8px; font-size: 13px; width: 100%;
+  box-sizing: border-box;
+}
+#preset-modal-input:focus { outline: none; border-color: #4dff88; }
+.preset-modal-btns { display: flex; gap: 8px; }
+.preset-modal-btns button {
+  flex: 1; padding: 6px; font-size: 12px; border-radius: 4px;
+  cursor: pointer; border: 1px solid #555;
+}
+#preset-modal-ok  { background: #16241a; color: #4dff88; border-color: #2a7a4e; }
+#preset-modal-ok:hover  { background: #1f3a28; }
+#preset-modal-cancel { background: #1a1a1a; color: #888; }
+#preset-modal-cancel:hover { background: #2a2a2a; }
+
+/* ── Other Settings: a popup menu of seed flags, anchored under its row ──
+   These used to be a row of checkboxes at the bottom of the page. Moving them
+   into a menu keeps the launcher inside its fixed 950px as the list grows —
+   see launcher-layout.md. */
+.other-settings-wrap { position: relative; flex: 1; }
+#other-settings-btn {
+  width: 100%; text-align: left; cursor: pointer;
+  background: #1a1a1a; color: #ccc;
+  border: 1px solid #333; border-radius: 4px;
+  padding: 5px 8px; font-size: 13px; font-family: inherit;
+  display: flex; align-items: center; justify-content: space-between;
+}
+#other-settings-btn:hover { border-color: #555; }
+#other-settings-btn .osb-caret { color: #666; font-size: 10px; }
+#other-settings-panel {
+  display: none;
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+  background: #1a1a1a; border: 1px solid #3a3a3a;
+  border-radius: 5px; padding: 8px 10px; z-index: 200;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.7);
+}
+#other-settings-panel.open { display: block; }
+#other-settings-panel .check-row { display: flex; margin: 5px 0; }
+/* Key Drop covers both halves, so the two specific flags are disabled while it
+   is on — dimmed rather than hidden, so it's clear what it stands for. */
+/* A half sits under its master, indented past the checkbox column so the
+   grouping reads at a glance rather than from the labels alone. */
+#other-settings-panel .check-row.sub { margin-left: 18px; }
+#other-settings-panel .check-row.dimmed { opacity: 0.4; cursor: default; }
+#other-settings-panel .check-row.dimmed input { cursor: default; }
+/* Two-up layouts. The page grew to 760px so Settings can run in two columns
+   and the Timer can sit beside Display instead of below the launch buttons. */
+.top-row { display: flex; gap: 12px; align-items: stretch; }
+.top-row > .section { flex: 1; min-width: 0; }
+.settings-grid { display: flex; gap: 18px; align-items: flex-start; }
+.settings-col { flex: 1; min-width: 0; }
+/* Half the width means a narrower label column than the full-width rows use. */
+.settings-col .row > label:first-child,
+.settings-col .row > label.presets-label {
+  flex: 0 0 148px; width: 148px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.settings-col .row > select { min-width: 0; }
+.settings-col .presets-col { margin-top: 6px; }
+/* The last line of the card: Race Mode on the left, Seed Link filling the rest
+   of the width beside it. Race Mode leaves the toggle column for this — the
+   space to the right of it was empty, and the seed box wants the room. */
+.race-seed-row { display: flex; align-items: center; gap: 8px; }
+/* min-width too: the base .row label rule sets 152px, which left this toggle
+   four pixels right of the ones above it. */
+.race-seed-row > label:first-child { flex: 0 0 148px; width: 148px; min-width: 148px; }
+.race-seed-row .toggle-switch { flex: 0 0 auto; }
+.race-seed-row .toggle-label-text { flex: 0 0 34px; }
+/* Same rule was padding this label out to 152px, so the box sat a long way
+   from its own label. */
+.race-seed-row label[for="seed-link"] {
+  flex: 0 0 auto; width: auto; min-width: 0; margin-left: 18px;
+}
+.race-seed-row #seed-link { flex: 1; min-width: 0; }
+/* Pottery is the one option here with more than two states, so it gets a
+   select. Same row rhythm as the checkboxes, label left, control right. */
+#other-settings-panel .check-row.select-row {
+  align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px;
+  padding-top: 8px; border-top: 1px solid #2c2c2c;
+}
+#other-settings-panel .check-row.select-row select {
+  background: #111; color: #ccc; border: 1px solid #3a3a3a;
+  border-radius: 3px; padding: 2px 4px; font-size: 12px; font-family: inherit;
+}
+
+/* ── Settings gear button ── */
+#app-settings-btn {
+  position: fixed; top: 10px; right: 10px;
+  background: #1a1a1a; border: 1px solid #333; color: #666;
+  border-radius: 50%; width: 28px; height: 28px;
+  font-size: 15px; cursor: pointer; display: flex;
+  align-items: center; justify-content: center;
+  transition: color 0.15s, border-color 0.15s;
+  z-index: 100;
+}
+#app-settings-btn:hover { color: #aaa; border-color: #555; }
+
+/* ── App settings panel ── */
+#app-settings-panel {
+  display: none;
+  position: fixed; top: 44px; right: 10px;
+  background: #1a1a1a; border: 1px solid #333;
+  border-radius: 6px; padding: 12px 14px;
+  min-width: 220px; max-width: 260px; z-index: 99;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+}
+#app-settings-panel.open { display: block; }
+#app-settings-panel h4 {
+  margin: 0 0 10px; font-size: 11px; color: #555;
+  text-transform: uppercase; letter-spacing: 1px;
+}
+.app-settings-row {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 8px; font-size: 12px; color: #999;
+}
+#check-update-btn {
+  flex: 1; padding: 6px 10px; font-size: 12px; cursor: pointer;
+  background: #1a2e4a; color: #7ab8f5;
+  border: 1px solid #2a4e7a; border-radius: 4px;
+  transition: background 0.15s;
+}
+#check-update-btn:hover { background: #2a4a6a; }
+#check-update-btn:disabled { opacity: 0.5; cursor: default; }
+#apply-patch-btn {
+  flex: 1; padding: 6px 10px; font-size: 12px; cursor: pointer;
+  background: #1a2e1a; color: #7af59a;
+  border: 1px solid #2a7a4e; border-radius: 4px;
+  transition: background 0.15s;
+}
+#apply-patch-btn:hover { background: #24402a; }
+#apply-patch-btn:disabled { opacity: 0.5; cursor: default; }
+/* Two buttons share the row now — keep each label on one line. */
+#check-update-btn, #apply-patch-btn { white-space: nowrap; padding: 6px 6px; font-size: 11px; }
+#update-panel-status {
+  font-size: 10px; color: #666; margin-top: 2px;
+}
+.app-settings-divider {
+  border: none; border-top: 1px solid #2a2a2a; margin: 10px 0;
+}
+.app-settings-section-label {
+  font-size: 11px; color: #555; text-transform: uppercase;
+  letter-spacing: 1px; margin-bottom: 8px;
+}
+.app-settings-row label {
+  color: #666; font-size: 12px; min-width: 40px;
+}
+.app-settings-row input {
+  background: #111; color: #ccc; border: 1px solid #333;
+  border-radius: 4px; padding: 5px 8px; font-size: 12px; flex: 1;
+}
+.app-settings-row input:focus { outline: none; border-color: #4dff88; }
+/* Checkboxes sit next to their label, not stretched like text inputs. */
+.app-settings-row input[type="checkbox"] { flex: 0 0 auto; width: auto; padding: 0; margin: 0; }
+.app-settings-info {
+  color: #444; font-size: 10px; margin: -2px 0 8px;
+}
+
+/* ── Update notification bar ── */
+#update-bar {
+  display: none;
+  background: #1a2e1a; border: 1px solid #2a5a2a;
+  border-radius: 4px; padding: 7px 10px;
+  margin-bottom: 10px;
+  font-size: 12px; color: #4dff88;
+  align-items: center; gap: 8px;
+}
+#update-bar.visible { display: flex; }
+#update-bar.error   { background: #2e1a1a; border-color: #5a2a2a; color: #ff7777; }
+#install-update-btn {
+  margin-left: auto; padding: 4px 10px;
+  background: #2a5a2a; color: #4dff88;
+  border: 1px solid #4dff88; border-radius: 4px;
+  font-size: 11px; cursor: pointer; white-space: nowrap;
+}
+#install-update-btn:hover { background: #3a7a3a; }
+</style>
+</head>
+<body>
+
+<!-- Settings gear -->
+<button id="app-settings-btn" title="App Settings" onclick="toggleAppSettings()">⚙</button>
+
+<!-- App settings panel -->
+<div id="app-settings-panel">
+  <h4>App Settings</h4>
+  <div class="app-settings-row">
+    <button id="check-update-btn" onclick="manualCheckUpdate()">Check for Updates</button>
+    <button id="apply-patch-btn" onclick="applyPatch()" title="Apply a .trkpatch file">Apply Patch…</button>
+  </div>
+  <div id="update-panel-status"></div>
+
+  <hr class="app-settings-divider">
+  <div class="app-settings-section-label">Connection</div>
+  <div class="app-settings-row">
+    <label>Host</label>
+    <input id="ws-host" type="text" value="localhost" placeholder="localhost">
+  </div>
+  <div class="app-settings-row">
+    <label>Port</label>
+    <input id="ws-port" type="text" value="23074" placeholder="23074">
+  </div>
+  <div class="app-settings-info">QUSB2SNES / SNI — default port 23074</div>
+
+  <hr class="app-settings-divider">
+  <div class="app-settings-section-label">Items API</div>
+  <div class="app-settings-row">
+    <label>Enable</label>
+    <input id="api-enabled" type="checkbox" checked>
+  </div>
+  <div class="app-settings-row">
+    <label>IP Address</label>
+    <input id="api-host" type="text" value="127.0.0.1" placeholder="127.0.0.1">
+  </div>
+  <div class="app-settings-row">
+    <label>Port</label>
+    <input id="api-port" type="text" value="8720" placeholder="8720">
+  </div>
+  <div class="app-settings-row">
+    <label>Overlay WS Port</label>
+    <input id="api-ws-port" type="text" value="8201" placeholder="8201">
+  </div>
+  <div class="app-settings-info">
+    Port = read-only REST API.<br>
+    Overlay WS Port = overlay WebSocket broadcast.<br>
+    Applied on launch. Use 0.0.0.0 for other devices.
+  </div>
+</div>
+
+<!-- Update notification bar (shown when update available/ready) -->
+<div id="update-bar">
+  <span id="update-bar-msg">Checking for updates…</span>
+</div>
+
+<h1>⚔ ALTTP Tracker</h1>
+<!-- The number here is only a fallback for opening this page outside Electron;
+     in the app it is replaced with app.getVersion() (i.e. package.json). -->
+<p class="version-line"><small id="app-version">Version 1.1.18</small></p>
+<div class="top-row">
+<div class="section">
+  <h2>Display</h2>
+  <div class="row">
+    <label>Item Scale</label>
+    <select id="item-scale">
+      <option value="0.5">50%</option>
+      <option value="0.55">55%</option>
+      <option value="0.6">60%</option>
+      <option value="0.65">65%</option>
+      <option value="0.7">70%</option>
+      <option value="0.75">75%</option>
+      <option value="0.8">80%</option>
+      <option value="0.85">85%</option>
+      <option value="0.9">90%</option>
+      <option value="0.95">95%</option>
+      <option value="1.0" selected>100%</option>
+      <option value="1.05">105%</option>
+      <option value="1.1">110%</option>
+      <option value="1.15">115%</option>
+      <option value="1.2">120%</option>
+      <option value="1.25">125%</option>
+      <option value="1.3">130%</option>
+      <option value="1.35">135%</option>
+      <option value="1.4">140%</option>
+      <option value="1.45">145%</option>
+      <option value="1.5">150%</option>
+    </select>
+  </div>
+  <div class="row">
+    <label>Tracker BG</label>
+    <select id="tracker-bg">
+      <option value="black"       selected>Black</option>
+      <option value="grey"               >Grey</option>
+      <option value="white"              >White</option>
+      <option value="transparent"        >Transparent</option>
+    </select>
+  </div>
+  <div class="row">
+    <label>Map Scale</label>
+    <select id="map-zoom">
+      <option value="50">50%</option>
+      <option value="55">55%</option>
+      <option value="60">60%</option>
+      <option value="65">65%</option>
+      <option value="70">70%</option>
+      <option value="75">75%</option>
+      <option value="80">80%</option>
+      <option value="85">85%</option>
+      <option value="90">90%</option>
+      <option value="95">95%</option>
+      <option value="100" selected>100%</option>
+      <option value="105">105%</option>
+      <option value="110">110%</option>
+      <option value="115">115%</option>
+      <option value="120">120%</option>
+      <option value="125">125%</option>
+      <option value="130">130%</option>
+      <option value="135">135%</option>
+      <option value="140">140%</option>
+      <option value="145">145%</option>
+      <option value="150">150%</option>
+    </select>
+  </div>
+</div>
+<div class="section">
+  <h2>Timer</h2>
+  <div class="row">
+    <label>Number Color</label>
+    <select id="timer-color" style="flex:1;">
+      <option value="blue"   selected>Blue</option>
+      <option value="green"         >Green</option>
+      <option value="red"           >Red</option>
+      <option value="orange"        >Orange</option>
+      <option value="purple"        >Purple</option>
+      <option value="yellow"        >Yellow</option>
+      <option value="pink"          >Pink</option>
+      <option value="custom"        >Custom</option>
+    </select>
+    <input type="color" id="timer-color-custom" value="#3498db"
+           title="Used when Number Color is set to Custom"
+           style="flex:0 0 auto;width:32px;height:24px;padding:0;border:1px solid #333;background:transparent;cursor:pointer;">
+  </div>
+  <div class="row">
+    <label>Background</label>
+    <select id="timer-bg" style="flex:1;">
+      <option value="black"       selected>Black</option>
+      <option value="grey"               >Grey</option>
+      <option value="white"              >White</option>
+      <option value="transparent"        >Transparent</option>
+      <option value="custom"             >Custom</option>
+    </select>
+    <input type="color" id="timer-bg-custom" value="#222222"
+           title="Used when Background is set to Custom"
+           style="flex:0 0 auto;width:32px;height:24px;padding:0;border:1px solid #333;background:transparent;cursor:pointer;">
+  </div>
+  <div class="btn-row" style="margin-top:6px;">
+    <button class="launch-btn" id="btn-timer" onclick="launchTimer()">⏱ Automatic Timer</button>
+  </div>
+  <div class="info timer-note">⚠ Pause only works while the game is in a menu. (See User Guide)</div>
+</div>
+</div>
+
+<div class="section">
+  <h2>Settings</h2>
+  <div class="settings-grid">
+    <div class="settings-col">
+      <div class="row">
+      <label>World State Mode</label>
+      <select id="gamemode-select">
+      <option value="standard" selected>Standard</option>
+      <option value="open">Open</option>
+      <option value="inverted">Inverted 1.0</option>
+      <option value="inverted2">Inverted 2.0</option>
+      <option value="retro">Retro</option>
+      </select>
+      </div>
+      <div class="row">
+      <label>Dungeon Item Shuffle</label>
+      <!-- Newer randomizers shuffle these four independently, so the setting
+           is the four boxes and the old mode names are presets over them. The
+           <select> is kept, hidden, as the value everything else still reads:
+           the panel writes it, nothing else had to change. -->
+      <select id="dungeonitems-select" style="display:none;">
+      <option value="standard">Standard</option>
+      <option value="mapcompass">Map/Compass</option>
+      <option value="mapcompasskeys">Map/Compass/Small Keys</option>
+      <option value="keysanity">Key Sanity</option>
+      <option value="custom">Custom</option>
+      <option value="other">Other</option>
+      </select>
+      <div class="other-settings-wrap">
+      <button type="button" id="dshuf-btn">
+      <span id="dshuf-summary">Standard</span><span class="osb-caret">&#9660;</span>
+      </button>
+      <div id="dshuf-panel">
+      <label class="check-row"><input type="checkbox" id="dshuf-map"><span>Map</span></label>
+      <label class="check-row"><input type="checkbox" id="dshuf-compass"><span>Compass</span></label>
+      <label class="check-row"><input type="checkbox" id="dshuf-bigkey"><span>Big Key</span></label>
+      <label class="check-row"><input type="checkbox" id="dshuf-smallkey"><span>Small Keys</span></label>
+      <label class="check-row" id="dshuf-other-row"><input type="checkbox" id="dshuf-other"><span>Other (not tracked)</span></label>
+      </div>
+      </div>
+      </div>
+      <div class="row">
+      <label>Pottery Shuffle</label>
+      <select id="pottery-select">
+      <option value="none" selected>None</option>
+      <option value="keys">Keys</option>
+      <option value="cave">Cave</option>
+      <option value="cavekeys">Cave + Keys</option>
+      <option value="reduced">Reduced</option>
+      <option value="clustered">Clustered</option>
+      <option value="nonempty">Non-empty</option>
+      <option value="dungeon">Dungeon</option>
+      <option value="lottery">Lottery</option>
+      </select>
+      </div>
+      <div class="row">
+      <label>Other Settings</label>
+      <div class="other-settings-wrap">
+      <button type="button" id="other-settings-btn">
+      <span id="other-settings-summary">None</span><span class="osb-caret">&#9660;</span>
+      </button>
+      <div id="other-settings-panel">
+      <label class="check-row">
+      <input type="checkbox" id="universalkeys-toggle">
+      <span>Universal Keys</span>
+      </label>
+      <label class="check-row">
+      <input type="checkbox" id="pseudoboots-toggle">
+      <span>Pseudo Boots</span>
+      </label>
+      <label class="check-row">
+      <input type="checkbox" id="mirrorscroll-toggle">
+      <span>Mirror Scroll</span>
+      </label>
+      <label class="check-row">
+      <input type="checkbox" id="shopsanity-toggle">
+      <span>Shop Sanity</span>
+      </label>
+      <label class="check-row">
+      <input type="checkbox" id="bonkshuffle-toggle">
+      <span>Bonk Shuffle</span>
+      </label>
+      <label class="check-row">
+      <input type="checkbox" id="randomprize-toggle">
+      <span>Random Prize Shuffle</span>
+      </label>
+      </div>
+      </div>
+      </div>
+      <div class="row toggle-row">
+      <label>Entrance Shuffle</label>
+      <label class="toggle-switch">
+      <input type="checkbox" id="entranceshuffle-toggle">
+      <span class="toggle-slider"></span>
+      </label>
+      <span class="toggle-label-text" id="entranceshuffle-toggle-label">No</span>
+      <button type="button" id="onlyadkd-launch" class="mini-launch"
+              onclick="launchOnlyAdkd()"
+              title="Set every OnlyADKD option and open the Item Tracker and Map">OnlyADKD</button>
+      </div>
+      <div class="row toggle-row">
+      <label>Boss Shuffle</label>
+      <label class="toggle-switch">
+      <input type="checkbox" id="bossshuffle-toggle" checked>
+      <span class="toggle-slider"></span>
+      </label>
+      <span class="toggle-label-text" id="bossshuffle-toggle-label">Yes</span>
+      </div>
+      <div class="row toggle-row">
+      <label>Enemizer</label>
+      <label class="toggle-switch">
+      <input type="checkbox" id="enemizer-toggle" checked>
+      <span class="toggle-slider"></span>
+      </label>
+      <span class="toggle-label-text" id="enemizer-toggle-label">Yes</span>
+      </div>
+      <div class="row toggle-row">
+      <label>Swordless</label>
+      <label class="toggle-switch">
+      <input type="checkbox" id="swordless-toggle">
+      <span class="toggle-slider"></span>
+      </label>
+      <span class="toggle-label-text" id="swordless-toggle-label">No</span>
+      </div>
+    </div>
+    <div class="settings-col">
+      <div class="row">
+      <label>Logic Mode</label>
+      <select id="logicmode-select">
+      <option value="noglitches" selected>No Glitches</option>
+      <option value="overworldglitches">Overworld Glitches</option>
+      <option value="hybridglitches">Hybrid Major Glitches</option>
+      <option value="nologic">No Logic</option>
+      </select>
+      </div>
+      <div class="row">
+      <label>Ganon's Tower Requirement</label>
+      <select id="gt-crystals">
+      <option value="7" selected>7</option>
+      <option value="6">6</option>
+      <option value="5">5</option>
+      <option value="4">4</option>
+      <option value="3">3</option>
+      <option value="2">2</option>
+      <option value="1">1</option>
+      <option value="0">0 (Open)</option>
+      </select>
+      </div>
+      <div class="row">
+      <label>Enemy Drop</label>
+      <select id="enemydrop-select">
+      <option value="none" selected>None</option>
+      <option value="keys">Keys</option>
+      <option value="all">Underworld</option>
+      </select>
+      </div>
+      <div class="presets-col">
+        <label class="presets-label">Preset</label>
+        <div class="preset-select-row">
+        <select id="preset-select">
+          <option value="" selected>— None —</option>
+          <option value="lordseed">Lord Seed</option>
+          <option value="standard">Standard</option>
+          <option value="openstandard">Open Standard</option>
+          <option value="standardkeysanity">Standard KeySanity</option>
+          <option value="openkeysanity">Open KeySanity</option>
+          <option value="cabookey">Cabookey</option>
+          <option value="cabookeydrop">Cabookeydrop</option>
+          <option value="adenemizer">AD Enemizer</option>
+          <option value="adkeysanity">AD Keysanity</option>
+          <option value="adkeydrop">AD Keydrop</option>
+          <option value="adkeydropshop">AD Keydrop Shop</option>
+          <option value="open47keys">4/7 Open Keys</option>
+          <option value="mcshuffle">MC Shuffle</option>
+          <option value="crosskeyskdad">Crosskeys KD AD</option>
+          <option value="inverted1">Inverted (1.0)</option>
+          <option value="invertedkeysanity">Inverted Keysanity (1.0)</option>
+          <option value="invertedadkeysanity">Inverted AD Keysanity (1.0)</option>
+          <option value="invertedcrosskeys">Inverted Crosskeys (1.0)</option>
+          <option value="influkeys">Influkeys (1.0)</option>
+          <option value="invertedbk">Inverted BK (2.0)</option>
+          <option value="invertedfullkeys">Inverted Full Keys (2.0)</option>
+          <option value="invertedfullkeysanity">Inverted Full Keysanity (2.0)</option>
+          <option value="enemizerkeydrop">Enemizer Keydrop</option>
+          <option value="ambrosia">Ambrosia</option>
+          <option value="ambroz1a">AmbroZ1a</option>
+          <option value="potpourri">Potpourri</option>
+          <option value="potsandbones">Pots &amp; Bones</option>
+          <option value="retrance">Retrance</option>
+          <option value="shoptillyoudrop">Shop Till You Drop</option>
+          <option value="retro">Retro</option>
+          <option value="enemizer">Enemizer</option>
+          <option value="swordless">Swordless</option>
+          <option value="mcboss">MCBoss</option>
+          <option value="mcbossenemizer">MCBossEnemizer</option>
+          <option value="crosskeys">CrossKeys</option>
+        </select>
+        <button type="button" id="preset-fav-btn" onclick="togglePresetFavorite()" title="Favorite: keep this preset at the top of the list">&#9734;</button>
+        </div>
+        <button type="button" class="preset-btn" id="preset-apply-btn" onclick="launchPreset()">Launch Preset</button>
+        <button type="button" class="preset-btn preset-btn-save" id="preset-save-btn" onclick="saveCustomPreset()">Save Preset</button>
+        <button type="button" class="preset-btn preset-btn-delete" id="preset-delete-btn" onclick="deleteCustomPreset()" style="display:none">Delete Preset</button>
+      </div>
+    </div>
+  </div>
+  <div class="row race-seed-row">
+  <label>Race Mode</label>
+  <label class="toggle-switch">
+  <input type="checkbox" id="racemode-toggle">
+  <span class="toggle-slider"></span>
+  </label>
+  <span class="toggle-label-text" id="racemode-toggle-label">No</span>
+  <label for="seed-link">Seed Link (alttpr / gwaa / avianart)</label>
+  <input id="seed-link" type="text" placeholder="https://alttpr.com/en/h/… or https://new.alttpr.gwaa.kiwi/seed/…" autocomplete="off">
+  <button type="button" id="seed-link-btn" onclick="loadSeedSettings()">Read</button>
+  </div>
+  <div id="seed-link-status"></div>
+</div>
+
+<!-- Preset name modal -->
+<div id="preset-modal-overlay">
+  <div id="preset-modal">
+    <label for="preset-modal-input">Name this preset:</label>
+    <input id="preset-modal-input" type="text" maxlength="40" autocomplete="off">
+    <div class="preset-modal-btns">
+      <button id="preset-modal-ok" onclick="presetModalConfirm()">Save</button>
+      <button id="preset-modal-cancel" onclick="presetModalClose()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="btn-row">
+  <button class="launch-btn" id="btn-items" onclick="launchItems()">Items Only</button>
+  <button class="launch-btn" id="btn-map"   onclick="launchMap()">Map Only</button>
+  <button class="launch-btn" id="btn-both"  onclick="launchBoth()">Launch Both</button>
+</div>
+
+
+<div class="btn-row" style="margin-top:8px;">
+  <button class="user-guide-btn" id="btn-user-guide" onclick="openUserGuide()">📖 User Guide</button>
+</div>
+
+
+<script>
+var IS_ELECTRON = !!(window.electronAPI && window.electronAPI.isElectron);
+
+// Show the real app version rather than a hardcoded one, so the title line
+// can't drift from package.json. The markup keeps a static number as a
+// fallback for viewing this page outside Electron.
+(function showAppVersion() {
+  if (!IS_ELECTRON || !window.electronAPI.getAppVersion) return;
+  Promise.resolve(window.electronAPI.getAppVersion()).then(function(v) {
+    var el = document.getElementById('app-version');
+    if (el && v) el.textContent = 'Version ' + v;
+  }).catch(function() { /* keep the fallback text */ });
+})();
+
+// Wire a checkbox-toggle to its adjacent Yes/No text label.
+function wireToggleLabel(toggleId, labelId) {
+  var toggle = document.getElementById(toggleId);
+  var label  = document.getElementById(labelId);
+  if (!toggle || !label) return;
+  function sync() { label.textContent = toggle.checked ? 'Yes' : 'No'; }
+  toggle.addEventListener('change', sync);
+  sync();
+}
+['entranceshuffle','bossshuffle','enemizer','universalkeys','keydropall','keydrop','enemykeydrop','swordless','pseudoboots','mirrorscroll','shopsanity','bonkshuffle','racemode'].forEach(function(name) {
+  wireToggleLabel(name + '-toggle', name + '-toggle-label');
+});
+
+// ── Seed link → settings ──────────────────────────────────────────────────────
+// Reads a seed's metadata from alttpr.com and fills in the settings form. It
+// deliberately does NOT launch — you review first.
+//
+// Only the five fields Chris specified are applied:
+//   dungeon_items           → Dungeon Item Shuffle (see DUNGEON_ITEMS_MAP)
+//   entry_crystals_tower    → Ganon's Tower Requirement
+//   mode                    → World State Mode
+//   tournament              → Race Mode
+//   enemizer.boss_shuffle   → Boss Shuffle  (anything but "none" = yes)
+//   enemizer.enemy_shuffle  → Enemizer      (anything but "none" = yes)
+//   shuffle                 → Entrance Shuffle (present, and not "vanilla")
+//   pseudoboots             → Pseudo Boots
+//   weapons                 → Swordless (only when the value is "swordless")
+//   bonk_drops              → Bonk Shuffle (avianart only; written straight
+//                             to localStorage — the map owns this setting now)
+// Everything else on the form is left alone.
+
+// alttpr's dungeon_items tokens don't match our <option> values, so they need
+// translating. Anything not listed here is reported as skipped rather than
+// guessed at.
+var DUNGEON_ITEMS_MAP = {
+  standard: 'standard',        // nothing shuffled
+  mc:       'mapcompass',      // Map/Compass
+  mcs:      'mapcompasskeys',  // Map/Compass/Small Keys
+  full:     'keysanity'        // everything, incl. big keys
+};
+
+// Accepts a full permalink (with or without a #meta fragment or language
+// segment), or a bare hash.
+function parseSeedHash(raw) {
+  var src = parseSeedSource(raw);
+  return src ? src.hash : null;
+}
+
+// Which site a link came from, and where its metadata lives.
+//
+//   alttpr.com   https://alttpr.com/hash/<hash>            -> data.spoiler.meta
+//   gwaa mirror  https://api.alttpr.gwaa.kiwi/seed/<hash>  -> data.meta
+//
+// A bare hash is assumed to be alttpr.com, which is what it has always meant.
+function parseSeedSource(raw) {
+  if (!raw) return null;
+  var s = String(raw).trim().split('#')[0].split('?')[0].replace(/\/+$/, '');
+  var m = s.match(/alttpr\.com\/(?:[a-z]{2}\/)?h\/([A-Za-z0-9_-]+)/i);
+  if (m) return { kind: 'alttpr', hash: m[1], site: 'alttpr.com',
+                  url: 'https://alttpr.com/hash/' + encodeURIComponent(m[1]) };
+  // Any gwaa host — new.alttpr.gwaa.kiwi/seed/<hash> today, but the seed page
+  // and the API are different hosts, so match the domain rather than a
+  // particular subdomain.
+  m = s.match(/alttpr\.gwaa\.kiwi\/seed\/([A-Za-z0-9_-]+)/i);
+  if (m) return { kind: 'gwaa', hash: m[1], site: 'alttpr.gwaa.kiwi',
+                  url: 'https://api.alttpr.gwaa.kiwi/seed/' + encodeURIComponent(m[1]) };
+  // avianart: same randomizer family as gwaa, so the same meta vocabulary —
+  // only the endpoint and where the block sits in the response differ.
+  m = s.match(/avianart\.games\/perm\/([A-Za-z0-9_-]+)/i);
+  if (m) return { kind: 'avianart', hash: m[1], site: 'avianart.games',
+                  url: 'https://avianart.games/api.php?action=permlink&hash=' + encodeURIComponent(m[1]) };
+  if (/^[A-Za-z0-9_-]{6,}$/.test(s)) return { kind: 'alttpr', hash: s, site: 'alttpr.com',
+                  url: 'https://alttpr.com/hash/' + encodeURIComponent(s) };
+  return null;
+}
+
+// ── The file-select hash ─────────────────────────────────────────────────────
+// The five item icons the game shows on the save screen. gwaa and avianart put
+// it in the metadata as text; alttpr.com does NOT — its `hash` field is the
+// permalink id ("JG30dEk3M3"), not the icons.
+//
+// It is still there, just in the patch: five item indices at ROM $180215.
+// Verified against a SahasrahBot race seed whose icons were
+// Hookshot/Shovel/Bombos/Ether/Book — the patch holds [2,13,8,9,16] at exactly
+// that address (Chris, Sep 2026).
+// Index order lifted from the seed sites' own icon table, not guessed. The
+// trap is index 7, GREEN PENDANT — an item that isn't in the inventory at all.
+// Leaving it out shifted everything after it by one, so 6 read as Fire Rod
+// instead of Ice Rod and 18 as Cane of Somaria instead of Green Potion
+// (Chris, Sep 2026: 4G67BqnOMZ = Ice Rod/Green Potion/Green Potion/Bug Net/
+// Mushroom, bytes [6,18,18,15,4]).
+//
+// Second entry per item is the file in items/, or null where we have no
+// picture — those fall back to their name.
+var HASH_ICONS = [
+  ['Bow','bow02.png'],            ['Boomerang','boomerang10.png'],
+  ['Hookshot','hookshot1.png'],   ['Bomb','bomb10.png'],
+  ['Mushroom','mushroom1.png'],   ['Powder','powder10.png'],
+  ['Ice Rod','icerod1.png'],      ['Green Pendant','greenpendant1.png'],
+  ['Bombos','bombos10.png'],      ['Ether','ether10.png'],
+  ['Quake','quake10.png'],        ['Lamp','lamp1.png'],
+  ['Hammer','hammer1.png'],       ['Shovel','shovel1.png'],
+  ['Ocarina','flute10.png'],      ['Bug Net','net1.png'],
+  ['Book','book1.png'],           ['Bottle','bottle_empty.png'],
+  ['Green Potion','bottle_green.png'], ['Somaria','caneofsomaria1.png'],
+  ['Cape','cape1.png'],           ['Mirror','mirror1.png'],
+  ['Boots','boots1.png'],         ['Gloves','gloves1.png'],
+  ['Flippers','flippers1.png'],   ['Pearl','moonpearl1.png'],
+  ['Shield','shield3.png'],       ['Green Tunic','mail0.png'],
+  ['Heart','❤️'],            ['Map','map1.png'],
+  ['Compass','compass1.png'],     ['Key','bigkey1.png']
+];
+var HASH_ROM_ADDR = 0x180215;
+
+// The patch is a list of { "<offset>": [bytes] }. Find whichever block covers
+// the hash address and read the five indices out of it.
+function hashFromPatch(patch) {
+  if (!Array.isArray(patch)) return '';
+  for (var i = 0; i < patch.length; i++) {
+    for (var k in patch[i]) {
+      var off = parseInt(k, 10), b = patch[i][k];
+      if (!b || !b.length || isNaN(off)) continue;
+      if (off > HASH_ROM_ADDR || off + b.length < HASH_ROM_ADDR + 5) continue;
+      var at = HASH_ROM_ADDR - off, out = [];
+      for (var j = 0; j < 5; j++) {
+        var row = HASH_ICONS[b[at + j]];
+        out.push(row ? row[0] : '?');
+      }
+      return out.join(', ');
+    }
+  }
+  return '';
+}
+
+// The hash as its five icons, with the names as hover text and as the fallback
+// for anything we have no picture for.
+// The sites don't all spell the icons the same way — avianart says "Cane" for
+// the Cane of Somaria, and several use the inventory name where the icon table
+// uses a shorter one. Map the variants onto our table rather than printing the
+// raw word next to five pictures (Chris, Sep 2026).
+// Keys are normalised (lowercased, non-alphanumerics stripped), so one entry
+// covers "Bug Net", "bugnet" and "bug-net" without listing each. Only genuinely
+// different words need to be here.
+//
+// The sites like a generic noun where the icon set has a specific item: avianart
+// says "Rod" for the Ice Rod and "Potion" for the Green Potion — and there is
+// only one of each in the hash set, so the generic term is unambiguous. Note
+// there is NO fire rod icon, which is why "rod" can safely mean the ice one
+// (Chris, Sep 2026).
+var HASH_ALIASES = {
+  rod: 'Ice Rod', icerod: 'Ice Rod',
+  potion: 'Green Potion', greenpotion: 'Green Potion',
+  cane: 'Somaria', caneofsomaria: 'Somaria',
+  magicpowder: 'Powder', bugnet: 'Bug Net', net: 'Bug Net',
+  flute: 'Ocarina', ocarinainactive: 'Ocarina', ocarinaactive: 'Ocarina',
+  moonpearl: 'Pearl',
+  tunic: 'Green Tunic', mail: 'Green Tunic', greenmail: 'Green Tunic',
+  bigkey: 'Key', smallkey: 'Key',
+  emptybottle: 'Bottle',
+  heartcontainer: 'Heart', heartpiece: 'Heart',
+  pendant: 'Green Pendant', greenpendant: 'Green Pendant',
+  bombs: 'Bomb', bomb: 'Bomb',
+  lantern: 'Lamp',
+  glove: 'Gloves', powerglove: 'Gloves', titansmitt: 'Gloves',
+  boot: 'Boots', pegasusboots: 'Boots',
+  bookofmudora: 'Book',
+  bowandarrows: 'Bow', silverarrows: 'Bow', bowandsilverarrows: 'Bow',
+  redboomerang: 'Boomerang', blueboomerang: 'Boomerang',
+  mirrorshield: 'Shield'
+};
+function hashKey(s) { return String(s).toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
+function seedHashHTML(hashText) {
+  var byName = {}, byKey = {};
+  HASH_ICONS.forEach(function (r) { byName[r[0]] = r[1]; byKey[hashKey(r[0])] = r[0]; });
+  var parts = String(hashText).split(',').map(function (t) { return t.trim(); })
+                              .filter(function (t) { return t; });
+  var icons = '', names = [];
+  parts.forEach(function (raw) {
+    var k = hashKey(raw);
+    var n = byKey[k] || HASH_ALIASES[k] || raw;
+    var img = byName[n];
+    names.push(n);
+    if (img && img.indexOf('.png') !== -1) {
+      icons += '<img class="seed-hash-icon" src="items/' + img + '" alt="' + n + '" title="' + n + '">';
+    } else if (img) {
+      // an emoji stands in where items/ has no sprite — the heart container
+      icons += '<span class="seed-hash-emoji" title="' + n + '">' + img + '</span>';
+    } else {
+      icons += '<span class="seed-hash-name" title="' + n + '">' + n + '</span>';
+    }
+  });
+  // Icons first, names after, the way the seed sites show it.
+  return icons + '<span class="seed-hash-text">(' + names.join('/') + ')</span>';
+}
+
+function seedStatus(msg, cls, html) {
+  var el = document.getElementById('seed-link-status');
+  if (!el) return;
+  el.style.color = (cls === 'err') ? '#e74c3c' : (cls === 'ok' ? '#2ecc71' : '');
+  if (html) { el.innerHTML = html; el.title = msg || ''; return; }
+  el.textContent = msg;
+  // The line is clipped to one row, so keep the whole message on hover.
+  el.title = msg || '';
+  el.className = cls || '';
+}
+
+// The enemizer settings appear either as a nested object or as flat dotted
+// keys ("enemizer.boss_shuffle") depending on the meta version — accept both.
+function metaValue(meta, dottedKey) {
+  if (!meta) return undefined;
+  if (meta[dottedKey] !== undefined) return meta[dottedKey];
+  var parts = dottedKey.split('.');
+  var cur = meta;
+  for (var i = 0; i < parts.length; i++) {
+    if (cur === null || typeof cur !== 'object') return undefined;
+    cur = cur[parts[i]];
+  }
+  return cur;
+}
+
+function isOnValue(v) {
+  // These fields are strings. alttpr uses "none"; avianart writes "vanilla"
+  // for an unshuffled setting (e.g. shuffle: "vanilla" on a non-entrance
+  // seed), so both have to count as off.
+  if (v === undefined || v === null) return null;   // field absent → don't touch
+  var s = String(v).trim().toLowerCase();
+  if (s === '') return null;
+  return !(s === 'none' || s === 'vanilla' || s === 'off' ||
+           s === 'no' || s === 'false' || s === '0');
+}
+
+// gwaa and avianart both run the Door/Overworld randomizer, whose meta uses its own
+// vocabulary. Translate it into the alttpr.com names applySeedMeta already
+// reads, so one mapping function serves both sites.
+//
+// Anything with no counterpart here is simply not carried over — door shuffle,
+// intensity, the whole ow_* family, trap doors, tile swap. loadSeedSettings
+// warns when one of those is non-vanilla, because the tracker's logic cannot
+// model that seed at all.
+// Dotted numeric compare, "0.7.1.5" style. Missing or unparsable reads as
+// older, so an absent version never promotes a seed to 2.0 by accident.
+function versionAtLeast(have, want) {
+  if (!have) return false;
+  var a = String(have).split('.').map(Number), b = String(want).split('.').map(Number);
+  for (var i = 0; i < Math.max(a.length, b.length); i++) {
+    var x = a[i], y = b[i] || 0;
+    if (!isFinite(x)) return false;
+    if (x > y) return true;
+    if (x < y) return false;
+  }
+  return true;
+}
+
+var GWAA_POTTERY = {
+  none:'none', keys:'keys', cave:'cave', cavekeys:'cavekeys', reduced:'reduced',
+  clustered:'clustered', nonempty:'nonempty', dungeon:'dungeon', lottery:'lottery'
+};
+function doorMetaToAlttpr(g) {
+  var m = {}, v;
+  function set(k, val) { if (val !== undefined && val !== null) m[k] = val; }
+
+  // This randomizer family's Inverted IS our Inverted 2.0 — the glove no longer
+  // climbs Death Mountain, the flute reaches the Dark World, and so on.
+  //
+  // Tried gating this on versions.Overworld >= 0.7.1.5 and the data says no:
+  // a gwaa seed reporting Overworld 0.7.0.3 is 2.0, and an avianart seed
+  // reporting 0.7.1.5 is 2.0 as well. Both are Door 1.5.6-u. So the fork is the
+  // signal, not the overworld version (Chris, Sep 2026). versionAtLeast() is
+  // kept below in case a genuinely 1.0 Door seed ever turns up to gate on.
+  set('mode', (String(g.mode || '').toLowerCase() === 'inverted') ? 'inverted2' : g.mode);
+  set('weapons', g.weapons);
+  set('shuffle', g.shuffle);            // entrance shuffle; 'vanilla' when off
+  set('entry_crystals_tower', g.gt_crystals);
+  set('pseudoboots', g.pseudoboots);
+  set('bonk_drops',  g.bonk_drops);
+  m['enemizer.boss_shuffle']  = g.boss_shuffle  || 'none';
+  m['enemizer.enemy_shuffle'] = g.enemy_shuffle || 'none';
+
+  // Four independent flags there, one mode name here. 'none' is off; anything
+  // else (dungeon / wild / universal…) counts as shuffled.
+  function on(x) { return x !== undefined && x !== null &&
+                          String(x).toLowerCase() !== 'none' && x !== false; }
+  // keyshuffle: "universal" is NOT small-key shuffle — it means keys are bought
+  // from shops and belong to no dungeon, which is our Universal Keys toggle.
+  // Treating any non-"none" as shuffled ticked the small-key box as well and
+  // gave the dungeons key counts they don't have (Chris, Sep 2026).
+  var universal = String(g.keyshuffle || '').toLowerCase() === 'universal';
+  var keyOn = on(g.keyshuffle) && !universal;
+  m.universal_keys = universal;
+
+  var mc = on(g.mapshuffle) && on(g.compassshuffle);
+  if (on(g.bigkeyshuffle) && keyOn && mc)            m.dungeon_items = 'full';
+  else if (mc && keyOn)                              m.dungeon_items = 'mcs';
+  else if (mc)                                       m.dungeon_items = 'mc';
+  else if (!on(g.mapshuffle) && !on(g.compassshuffle) &&
+           !on(g.bigkeyshuffle) && !keyOn)           m.dungeon_items = 'standard';
+  // …and the flags themselves, because combinations like "big key only" (the
+  // avianart seed's bigkeyshuffle: "wild") have no legacy mode name at all and
+  // would otherwise be dropped. The panel is the real setting now.
+  m.dungeon_shuffle = (on(g.mapshuffle) ? 'm' : '') + (on(g.compassshuffle) ? 'c' : '') +
+                      (on(g.bigkeyshuffle) ? 'b' : '') + (keyOn ? 'k' : '');
+
+  // Settings alttpr.com has no equivalent for — passed through under names
+  // applySeedMeta reads below.
+  v = g.pottery;   if (v !== undefined) m.pottery   = GWAA_POTTERY[String(v).toLowerCase()] || null;
+  v = g.dropshuffle;
+  if (v !== undefined) m.enemy_drop = (String(v).toLowerCase() === 'none') ? 'none'
+                                    : (String(v).toLowerCase() === 'keys') ? 'keys' : 'all';
+  set('shopsanity',  g.shopsanity);
+  if (g.prizeshuffle !== undefined)
+    m.random_prize = String(g.prizeshuffle).toLowerCase() !== 'none';
+  set('mirrorscroll', g.mirrorscroll);
+  set('logic',       g.logic);
+  return m;
+}
+
+function applySeedMeta(meta) {
+  var applied = [], skipped = [];
+
+  // Dungeon Item Shuffle — translated through DUNGEON_ITEMS_MAP.
+  var di = metaValue(meta, 'dungeon_items');
+  if (di !== undefined && di !== null) {
+    var diStr = String(di).trim().toLowerCase();
+    var diVal = DUNGEON_ITEMS_MAP[diStr];
+    var disel = document.getElementById('dungeonitems-select');
+    if (disel && diVal &&
+        Array.prototype.some.call(disel.options, function(o) { return o.value === diVal; })) {
+      disel.value = diVal;
+      // The panel is the UI now, so a seed's mode has to move the boxes too.
+      if (typeof DSHUF_PRESETS !== 'undefined' && DSHUF_PRESETS[diVal] !== undefined) {
+        dshufSet(DSHUF_PRESETS[diVal]);
+        var diOther = document.getElementById('dshuf-other');
+        if (diOther) diOther.checked = (diVal === 'other');
+        dshufSync();
+      }
+      applied.push('dungeon items ' + diVal);
+    } else {
+      skipped.push('dungeon_items "' + diStr + '"');
+    }
+  }
+
+  // The four flags straight from the seed, where it gave them. Runs after the
+  // mode above so it wins — a flag set with no legacy mode name (big key on its
+  // own) still reaches the panel.
+  var dshuf = metaValue(meta, 'dungeon_shuffle');
+  if (dshuf !== undefined && dshuf !== null && typeof dshufSet === 'function') {
+    dshufSet(String(dshuf));
+    var dsOther = document.getElementById('dshuf-other');
+    if (dsOther) dsOther.checked = false;
+    if (typeof dshufSync === 'function') dshufSync();
+    applied.push('dungeon shuffle "' + dshuf + '"');
+  }
+
+  // Ganon's Tower Requirement — only accept a value the dropdown actually has.
+  var gtc = metaValue(meta, 'entry_crystals_tower');
+  if (gtc !== undefined && gtc !== null) {
+    var gtsel = document.getElementById('gt-crystals');
+    var gtStr = String(gtc).trim();
+    if (gtsel && Array.prototype.some.call(gtsel.options, function(o) { return o.value === gtStr; })) {
+      gtsel.value = gtStr;
+      applied.push('GT ' + gtStr);
+    } else {
+      skipped.push('GT requirement "' + gtStr + '"');
+    }
+  }
+
+  // World State Mode — alttpr uses the same tokens as our <option> values.
+  var mode = metaValue(meta, 'mode');
+  if (mode !== undefined && mode !== null) {
+    var gmsel = document.getElementById('gamemode-select');
+    var modeStr = String(mode).trim().toLowerCase();
+    if (gmsel && Array.prototype.some.call(gmsel.options, function(o) { return o.value === modeStr; })) {
+      gmsel.value = modeStr;
+      applied.push('mode ' + modeStr);
+    } else {
+      skipped.push('mode "' + modeStr + '"');
+    }
+  }
+
+  // Race Mode — tournament is a boolean in the meta.
+  var tour = metaValue(meta, 'tournament');
+  if (tour !== undefined && tour !== null) {
+    var rm = document.getElementById('racemode-toggle');
+    if (rm) {
+      rm.checked = (tour === true || String(tour).toLowerCase() === 'true' || String(tour) === '1');
+      applied.push('race ' + (rm.checked ? 'on' : 'off'));
+    }
+  }
+
+  // Boss Shuffle / Enemizer — anything other than "none" counts as on.
+  var bs = isOnValue(metaValue(meta, 'enemizer.boss_shuffle'));
+  if (bs !== null) {
+    var bsEl = document.getElementById('bossshuffle-toggle');
+    if (bsEl) { bsEl.checked = bs; applied.push('boss shuffle ' + (bs ? 'on' : 'off')); }
+  }
+  var es = isOnValue(metaValue(meta, 'enemizer.enemy_shuffle'));
+  if (es !== null) {
+    var esEl = document.getElementById('enemizer-toggle');
+    if (esEl) { esEl.checked = es; applied.push('enemizer ' + (es ? 'on' : 'off')); }
+  }
+
+  // Entrance Shuffle — alttpr only emits `shuffle` on entrance seeds (its value
+  // is the shuffle type: simple, restricted, full, crossed, insanity). So
+  // unlike every other field here, ABSENCE is meaningful and turns it off —
+  // otherwise a leftover tick from a previous seed would survive.
+  var shuf = metaValue(meta, 'shuffle');
+  var shufOn = (shuf !== undefined && shuf !== null && isOnValue(shuf) === true);
+  var esEl2 = document.getElementById('entranceshuffle-toggle');
+  if (esEl2) {
+    esEl2.checked = shufOn;
+    applied.push('entrance shuffle ' + (shufOn ? String(shuf) : 'off'));
+  }
+
+  // Pseudo Boots.
+  var pb = metaValue(meta, 'pseudoboots');
+  if (pb !== undefined && pb !== null) {
+    var pbEl = document.getElementById('pseudoboots-toggle');
+    if (pbEl) {
+      pbEl.checked = (pb === true || String(pb).toLowerCase() === 'true' || String(pb) === '1');
+      applied.push('pseudo boots ' + (pbEl.checked ? 'on' : 'off'));
+    }
+  }
+
+  // Bonk Shuffle. avianart-only — alttpr has no such setting, so an alttpr
+  // seed leaves this alone rather than forcing it off.
+  //
+  // Drive the CHECKBOX, not the storage key. It used to write
+  // 'alttp-bonk-shuffle' straight through, because the flag lived only in the
+  // map's settings menu. Now that the launcher owns it, save() writes that key
+  // from the checkbox — so a direct write was overwritten by the next save,
+  // and the seed's value silently lost.
+  var bd = metaValue(meta, 'bonk_drops');
+  if (bd !== undefined && bd !== null) {
+    var bdOn = (bd === true || String(bd).toLowerCase() === 'true' || String(bd) === '1');
+    var bdEl = document.getElementById('bonkshuffle-toggle');
+    if (bdEl) bdEl.checked = bdOn;
+    try { localStorage.setItem('alttp-bonk-shuffle', bdOn ? 'yes' : 'no'); } catch (e) {}
+    applied.push('bonk shuffle ' + (bdOn ? 'on' : 'off'));
+  }
+
+  // Swordless — `weapons` also carries randomized/assured/vanilla, and only
+  // the swordless value ticks the box.
+  var wep = metaValue(meta, 'weapons');
+  if (wep !== undefined && wep !== null) {
+    var swEl = document.getElementById('swordless-toggle');
+    if (swEl) {
+      swEl.checked = (String(wep).trim().toLowerCase() === 'swordless');
+      applied.push('swordless ' + (swEl.checked ? 'on' : 'off'));
+    }
+  }
+
+  // ── settings only the gwaa/Door randomizer reports ──
+  // Pottery Shuffle: the dropdown's own values, so a direct set is enough.
+  var pot = metaValue(meta, 'pottery');
+  if (pot !== undefined && pot !== null) {
+    var potSel = document.getElementById('pottery-select');
+    var potStr = String(pot).trim().toLowerCase();
+    if (potSel && Array.prototype.some.call(potSel.options, function(o) { return o.value === potStr; })) {
+      potSel.value = potStr;
+      applied.push('pottery ' + potStr);
+    } else {
+      skipped.push('pottery "' + potStr + '"');
+    }
+  }
+
+  // Enemy Drop: none / keys / all, same three the dropdown offers.
+  var edv = metaValue(meta, 'enemy_drop');
+  if (edv !== undefined && edv !== null) {
+    var edSel = document.getElementById('enemydrop-select');
+    var edStr = String(edv).trim().toLowerCase();
+    if (edSel && Array.prototype.some.call(edSel.options, function(o) { return o.value === edStr; })) {
+      edSel.value = edStr;
+      applied.push('enemy drop ' + edStr);
+    } else {
+      skipped.push('enemy_drop "' + edStr + '"');
+    }
+  }
+
+  // Logic mode.
+  var lgc = metaValue(meta, 'logic');
+  if (lgc !== undefined && lgc !== null) {
+    var lgSel = document.getElementById('logicmode-select');
+    var lgStr = String(lgc).trim().toLowerCase();
+    if (lgSel && Array.prototype.some.call(lgSel.options, function(o) { return o.value === lgStr; })) {
+      lgSel.value = lgStr;
+      applied.push('logic ' + lgStr);
+    } else {
+      skipped.push('logic "' + lgStr + '"');
+    }
+  }
+
+  // Two plain toggles. Written to the checkbox, not the storage key — save()
+  // writes the key from the checkbox, so a direct write is lost on next save
+  // (the same trap bonk shuffle hit above).
+  [['shopsanity',    'shopsanity-toggle',    'shopsanity'],
+   ['mirrorscroll',  'mirrorscroll-toggle',  'mirror scroll'],
+   ['universal_keys','universalkeys-toggle', 'universal keys'],
+   ['random_prize',  'randomprize-toggle',   'random prize shuffle']].forEach(function (row) {
+    var raw = metaValue(meta, row[0]);
+    if (raw === undefined || raw === null) return;
+    var on = (raw === true || String(raw).toLowerCase() === 'true' || String(raw) === '1');
+    var el = document.getElementById(row[1]);
+    if (!el) { skipped.push(row[0]); return; }
+    el.checked = on;
+    applied.push(row[2] + ' ' + (on ? 'on' : 'off'));
+  });
+
+  // Re-sync the Yes/No labels and persist, same as applyPresetSettings does.
+  ['entranceshuffle','bossshuffle','enemizer','universalkeys','keydropall','keydrop','enemykeydrop','swordless','pseudoboots','mirrorscroll','shopsanity','bonkshuffle','racemode'].forEach(function(name) {
+    var t = document.getElementById(name + '-toggle');
+    var l = document.getElementById(name + '-toggle-label');
+    if (t && l) l.textContent = t.checked ? 'Yes' : 'No';
+  });
+  // The Other Settings button shows a summary of the boxes inside its panel,
+  // and that summary is driven by their `change` events — which don't fire when
+  // the boxes are set from code. applyPresetSettings already calls this; a seed
+  // read has to as well, or the button reads "None" over ticked boxes
+  // (Chris, Sep 2026).
+  if (typeof updateOtherSettingsSummary === 'function') updateOtherSettingsSummary();
+  save();
+
+  return { applied: applied, skipped: skipped };
+}
+
+async function loadSeedSettings() {
+  var input = document.getElementById('seed-link');
+  var btn   = document.getElementById('seed-link-btn');
+  var raw   = (input && input.value) || '';
+  var src   = parseSeedSource(raw);
+  var hash  = src && src.hash;
+  if (!src) {
+    seedStatus('Could not read a seed hash from that — paste a full permalink from ' +
+               'alttpr.com, alttpr.gwaa.kiwi or avianart.games.', 'err');
+    return;
+  }
+  if (btn) btn.disabled = true;
+  seedStatus('Reading seed ' + hash + ' from ' + src.site + '…', '');
+  try {
+    var res = await fetch(src.url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    var data = await res.json();
+    var meta, _best = 0;
+    if (src.kind === 'gwaa' || src.kind === 'avianart') {
+      // The mirror's own flattened block. spoiler.meta exists too, but every
+      // value there is wrapped per player ({"1": "standard"}), so the top-level
+      // copy is the one worth reading.
+      // The block moves around, and worse, a DECOY sits where you'd look:
+      //   gwaa      data.meta                     74 keys
+      //   avianart  data.response.meta             2 keys  <- stub
+      //             data.response.spoiler.meta    74 keys  <- the real one
+      // Taking the first candidate that exists picked avianart's 2-key stub,
+      // so only the settings this mapper defaults unconditionally came out —
+      // boss shuffle, enemizer, an empty dungeon-shuffle string — and every
+      // one read with set() was skipped (Chris, Sep 2026: "applied 5
+      // settings", GT still 0). Take the RICHEST candidate instead of the
+      // first, which is true whatever the next site does.
+      var graw = null;
+      [data && data.meta,
+       data && data.response && data.response.meta,
+       data && data.spoiler && data.spoiler.meta,
+       data && data.response && data.response.spoiler && data.response.spoiler.meta
+      ].forEach(function (cand) {
+        if (!cand || typeof cand !== 'object') return;
+        var n = Object.keys(cand).length;
+        if (n > _best) { _best = n; graw = cand; }
+      });
+      window._lastSeedMetaRaw = graw;
+      meta = graw ? doorMetaToAlttpr(graw) : null;
+      // Door and overworld shuffles change the game past what this tracker
+      // models, so say so rather than applying half a seed silently.
+      var offPiste = [];
+      if (graw) {
+        if (graw.door_shuffle && String(graw.door_shuffle).toLowerCase() !== 'vanilla') offPiste.push('door shuffle');
+        if (graw.ow_layout    && String(graw.ow_layout).toLowerCase()    !== 'vanilla') offPiste.push('overworld layout');
+        if (graw.ow_crossed   && String(graw.ow_crossed).toLowerCase()   !== 'none')    offPiste.push('crossed overworld');
+        if (graw.ow_mixed) offPiste.push('mixed overworld');
+      }
+      window._lastSeedOffPiste = offPiste;
+    } else {
+      // alttpr.com: metadata lives under spoiler.meta; tolerate a flatter shape.
+      meta = (data && data.spoiler && data.spoiler.meta) || (data && data.meta) || null;
+      _best = meta ? Object.keys(meta).length : 0;
+      window._lastSeedMetaRaw = meta;
+      // The VT randomizer has no pottery or drop shuffle, so its seeds never
+      // mention them — and a skipped setting keeps whatever the last seed left
+      // behind. Reading an alttpr seed after a gwaa one kept Pottery on a seed
+      // that cannot have it (Chris, Sep 2026). Absent here means off, so say so
+      // rather than leaving it. (`enemizer.pot_shuffle` in that meta is the old
+      // pot-CONTENTS shuffle, nothing to do with pottery locations.)
+      // Same for everything in the Other Settings menu except Pseudo Boots,
+      // which alttpr does report. An absent field is skipped, so without this
+      // a door-family seed's Universal Keys or Bonk Shuffle stayed ticked over
+      // an alttpr seed that has no such option (Chris, Sep 2026).
+      if (meta) meta = Object.assign({}, meta, {
+        pottery: 'none', enemy_drop: 'none',
+        universal_keys: false, mirrorscroll: false, shopsanity: false,
+        bonk_drops: false, random_prize: false
+      });
+    }
+    // Only the door-family sites hide a decoy stub next to the real block;
+    // alttpr.com's meta is a single object of whatever size, so holding it to a
+    // field count would reject a legitimately small one.
+    if (meta && _best < 10 && (src.kind === 'gwaa' || src.kind === 'avianart')) {
+      window._lastSeedData = data;
+      seedStatus('Seed read, but its settings block only had ' + _best +
+                 ' fields — nothing usable. See window._lastSeedData.', 'err');
+      return;
+    }
+    if (!meta) {
+      window._lastSeedData = data;   // for debugging from the console
+      seedStatus('Seed loaded but it has no settings metadata (spoiler.meta). Nothing applied.', 'err');
+      return;
+    }
+    window._lastSeedMeta = meta;     // inspect the raw meta from the console
+    var r = applySeedMeta(meta);
+    // Success is silent — the form visibly changes, and a long "Applied: …"
+    // line wrapped far enough to push the launcher into a scrollbar. The
+    // detail is still available on window._lastSeedApplied. Problems are
+    // always reported, otherwise a failed read looks identical to a good one.
+    window._lastSeedApplied = r;
+    var offP = window._lastSeedOffPiste || [];
+    if (!r.applied.length) {
+      seedStatus('Seed read, but none of the mapped settings were present.', 'err');
+    } else if (offP.length) {
+      seedStatus('Applied. This seed also uses ' + offP.join(' and ') +
+                 ', which the tracker does not model — its logic will be wrong.', 'err');
+    } else {
+      // The file-select hash — the five item icons the game shows on the save
+      // screen. Better than a list of what was applied: the form already shows
+      // that, and this is the one thing it can't, so it's how you confirm the
+      // ROM you're about to play is the seed you just read (Chris, Sep 2026).
+      var raw = window._lastSeedMetaRaw || {};
+      // alttpr.com's meta.hash is the permalink id, not the icons — only take a
+      // hash that reads as icon names, otherwise dig it out of the patch.
+      var h = raw.hash || metaValue(meta, 'hash') || '';
+      if (!/[A-Za-z], /.test(h)) h = hashFromPatch(data && data.patch) || '';
+      if (h) seedStatus('Hash: ' + h, '', seedHashHTML(h));
+      else   seedStatus('Read ' + hash + ' — ' + r.applied.length + ' settings', '');
+    }
+  } catch (e) {
+    seedStatus('Could not reach ' + src.site + ' (' + e.message + '). ' +
+      'This needs the desktop app — a plain browser will block the request.', 'err');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function getSettings() {
+  var esToggle = document.getElementById('entranceshuffle-toggle');
+  return {
+    wsHost:     document.getElementById('ws-host').value     || 'localhost',
+    wsPort:     document.getElementById('ws-port').value     || '23074',
+    scale:      document.getElementById('item-scale').value  || '1.0',
+    zoom:       document.getElementById('map-zoom').value    || '100',
+    layout:     localStorage.getItem('alttp-map-layout')     || 'horizontal',
+    enemizer:   document.getElementById('enemizer-toggle') && document.getElementById('enemizer-toggle').checked ? 'yes' : 'no',
+    bossshuffle: document.getElementById('bossshuffle-toggle') && document.getElementById('bossshuffle-toggle').checked ? 'yes' : 'no',
+    gtCrystals: document.getElementById('gt-crystals').value || '7',
+    gamemode:      document.getElementById('gamemode-select') ? document.getElementById('gamemode-select').value : 'standard',
+    dungeonItems:  (function () {
+      var el = document.getElementById('dungeonitems-select');
+      var v  = el ? el.value : 'standard';
+      // 'custom' is a label for the checkboxes, never a stored mode.
+      return (v === 'custom') ? dshufLegacyMode(dshufStr()) : v;
+    })(),
+    dungeonShuffle: (function () {
+      var el = document.getElementById('dungeonitems-select');
+      var v  = el ? el.value : 'standard';
+      return (v === 'other') ? '' : dshufStr();
+    })(),
+    trackerBg:  document.getElementById('tracker-bg') ? document.getElementById('tracker-bg').value : 'black',
+    universalKeys: document.getElementById('universalkeys-toggle') && document.getElementById('universalkeys-toggle').checked ? 'yes' : 'no',
+    keyDropAll: 'no',
+    keyDrop:    (potteryValue() === 'keys' || potteryValue() === 'cavekeys') ? 'yes' : 'no',
+    enemyKeyDrop: enemyDropValue() === 'keys' ? 'yes' : 'no',
+    swordless:  document.getElementById('swordless-toggle') && document.getElementById('swordless-toggle').checked ? 'yes' : 'no',
+    pseudoboots: document.getElementById('pseudoboots-toggle') && document.getElementById('pseudoboots-toggle').checked ? 'yes' : 'no',
+    mirrorscroll: document.getElementById('mirrorscroll-toggle') && document.getElementById('mirrorscroll-toggle').checked ? 'yes' : 'no',
+    // Both of these were map-only Seed Options until Aug 2026; the launcher now
+    // owns them too, so the map gets them on the URL like every other flag.
+    potDrops:    POTTERY_FULL[potteryValue()] ? 'yes' : 'no',
+    enemyDrops:  enemyDropValue() === 'all' ? 'yes' : 'no',
+    potsBones:   'no',
+    pottery:     potteryValue(),
+    logicMode:   (document.getElementById('logicmode-select') || {}).value || 'noglitches',
+    enemyDrop:   enemyDropValue(),
+    shopsanity:  document.getElementById('shopsanity-toggle') && document.getElementById('shopsanity-toggle').checked ? 'yes' : 'no',
+    bonkShuffle: document.getElementById('bonkshuffle-toggle') && document.getElementById('bonkshuffle-toggle').checked ? 'yes' : 'no',
+    randomPrize: document.getElementById('randomprize-toggle') && document.getElementById('randomprize-toggle').checked ? 'yes' : 'no',
+    entranceShuffle: esToggle && esToggle.checked ? 'on' : 'none',
+    raceMode:   document.getElementById('racemode-toggle') && document.getElementById('racemode-toggle').checked ? 'yes' : 'no',
+    apiEnabled: document.getElementById('api-enabled') && document.getElementById('api-enabled').checked ? 'yes' : 'no',
+    apiHost:    document.getElementById('api-host') ? (document.getElementById('api-host').value || '127.0.0.1') : '127.0.0.1',
+    apiPort:    document.getElementById('api-port') ? (document.getElementById('api-port').value || '8720') : '8720',
+    apiWsPort:  document.getElementById('api-ws-port') ? (document.getElementById('api-ws-port').value || '8201') : '8201',
+  };
+}
+
+function save() {
+  var s = getSettings();
+  localStorage.setItem('alttp-ws-host',     s.wsHost);
+  localStorage.setItem('alttp-ws-port',     s.wsPort);
+  localStorage.setItem('alttp-item-scale',  s.scale);
+  localStorage.setItem('alttp-map-zoom',    s.zoom);
+  localStorage.setItem('alttp-enemizer',    s.enemizer);
+  localStorage.setItem('alttp-bossshuffle', s.bossshuffle);
+  localStorage.setItem('alttp-gt-crystals', s.gtCrystals);
+  localStorage.setItem('alttp-gamemode', s.gamemode);
+  localStorage.setItem('alttp-dungeon-items', s.dungeonItems);
+  localStorage.setItem('alttp-dungeon-shuffle', s.dungeonShuffle || '');
+  localStorage.setItem('alttp-tracker-bg', document.getElementById('tracker-bg') ? document.getElementById('tracker-bg').value : 'black');
+  localStorage.setItem('alttp-timer-color', document.getElementById('timer-color') ? document.getElementById('timer-color').value : 'blue');
+  localStorage.setItem('alttp-timer-bg', document.getElementById('timer-bg') ? document.getElementById('timer-bg').value : 'black');
+  if (document.getElementById('timer-color-custom')) localStorage.setItem('alttp-timer-color-custom', document.getElementById('timer-color-custom').value);
+  if (document.getElementById('timer-bg-custom'))    localStorage.setItem('alttp-timer-bg-custom',    document.getElementById('timer-bg-custom').value);
+  localStorage.setItem('alttp-universal-keys', s.universalKeys);
+  localStorage.setItem('alttp-keydrop-all', s.keyDropAll);
+  localStorage.setItem('alttp-keydrop', s.keyDrop);
+  localStorage.setItem('alttp-enemy-keydrop', s.enemyKeyDrop);
+  localStorage.setItem('alttp-swordless', s.swordless);
+  localStorage.setItem('alttp-pseudoboots', s.pseudoboots);
+  localStorage.setItem('alttp-mirrorscroll', s.mirrorscroll);
+  // Key names set by map.html first — 'alttp-bonk-shuffle' is hyphenated where
+  // most others aren't. Don't "tidy" it; the map reads that exact string.
+  localStorage.setItem('alttp-pot-drops', s.potDrops);
+  localStorage.setItem('alttp-enemy-drops', s.enemyDrops);
+  localStorage.setItem('alttp-pots-bones', s.potsBones);
+  localStorage.setItem('alttp-pottery', s.pottery);
+  localStorage.setItem('alttp-logic-mode', s.logicMode);
+  localStorage.setItem('alttp-enemy-drop-mode', s.enemyDrop);
+  localStorage.setItem('alttp-shopsanity', s.shopsanity);
+  localStorage.setItem('alttp-bonk-shuffle', s.bonkShuffle);
+  localStorage.setItem('alttp-random-prize', s.randomPrize);
+  localStorage.setItem('alttp-entrance-shuffle', s.entranceShuffle === 'none' ? 'no' : 'yes');
+  localStorage.setItem('alttp-entrance-shuffle-mode', s.entranceShuffle);
+  localStorage.setItem('alttp-race-mode', s.raceMode);
+  localStorage.setItem('alttp-api-enabled', s.apiEnabled);
+  localStorage.setItem('alttp-api-host', s.apiHost);
+  localStorage.setItem('alttp-api-port', s.apiPort);
+  localStorage.setItem('alttp-api-ws-port', s.apiWsPort);
+}
+
+// ── The two dropdowns that replaced six checkboxes ───────────────────────────
+// Pottery and Enemy Drop are the settings the player picks; the flags the rest
+// of the tracker reads (pot key drop, enemy key drop, pot drops, enemy drops)
+// are derived from them here, in one place. Key Drop and Pots and Bones were
+// only ever "both halves at once", which a pair of dropdowns says better.
+// Which pottery modes shuffle EVERY pot in the underworld, i.e. make each one a
+// dungeon location. Must match POTTERY_DUNGEON_MODES in js/dngpanel.js: 'cave'
+// and 'cavekeys' shuffle CAVE pots (and, for cavekeys, the dungeon key pots),
+// not a dungeon's ordinary pots — listing them here sent potDrops=yes and the
+// item tracker added every pot to the dungeon's item total (Eastern read 0/7
+// instead of 0/3) while the hover card, correctly, did not. Chris, Sep 2026.
+var POTTERY_FULL = { reduced:1, clustered:1, nonempty:1, dungeon:1, lottery:1 };
+function potteryValue()   { return (document.getElementById('pottery-select')   || {}).value || 'none'; }
+function enemyDropValue() { return (document.getElementById('enemydrop-select') || {}).value || 'none'; }
+
+function mapUrl(s) {
+  var entFlag = (s.entranceShuffle === 'none') ? 'no' : 'yes';
+  return 'map.html?zoom=' + s.zoom + '&enemizer=' + s.enemizer + '&gtcrystals=' + s.gtCrystals + '&gamemode=' + s.gamemode + '&dungeonitems=' + s.dungeonItems + '&dungeonshuffle=' + (s.dungeonShuffle || '') + '&swordless=' + s.swordless + '&universalkeys=' + s.universalKeys + '&keydropall=' + s.keyDropAll + '&keydrop=' + s.keyDrop + '&enemykeydrop=' + s.enemyKeyDrop + '&bossshuffle=' + s.bossshuffle + '&entranceshuffle=' + entFlag + '&entrancemode=' + s.entranceShuffle + '&shopsanity=' + s.shopsanity + '&bonkshuffle=' + s.bonkShuffle + '&potdrops=' + s.potDrops + '&enemydrops=' + s.enemyDrops + '&potsbones=' + s.potsBones + '&pottery=' + s.pottery + '&logic=' + s.logicMode;
+}
+
+// The small-key store is meant to carry keys between the tracker's own windows
+// DURING a run, but localStorage outlives the app, so a fresh launch opened
+// showing the last seed's keys (broadcast view, Sep 2026). The launcher is the
+// first window of every launch, so clearing it here scopes the store to one
+// run. A live SRAM read refills it within a poll; $7EF4E0+ is the real tally.
+try { localStorage.removeItem('alttp-keys-found'); } catch (e) {}
+
+// Every other launch leaves OnlyADKD behind: the marker is what makes map.html
+// hide the overworld checks and map the item doors, so a plain launch clears it.
+function _clearOnlyAdkd() {
+  try {
+    if (localStorage.getItem('alttp-preset') === 'onlyadkd') {
+      localStorage.removeItem('alttp-preset');
+      localStorage.removeItem('alttp-preset-map-loaded');
+    }
+  } catch (e) {}
+}
+
+function launchItems() {
+  _clearOnlyAdkd();
+  save();
+  var s = getSettings();
+  if (IS_ELECTRON) {
+    window.electronAPI.launch({ which: 'items', ...s });
+  } else {
+    var tbg = document.getElementById('tracker-bg') ? document.getElementById('tracker-bg').value : 'black';
+    var di = s.dungeonItems || 'standard';
+    // gamemode is needed here too — Retro raises every dungeon's chest count.
+    window.open('itemtracker.html?scale=' + s.scale + '&bg=' + tbg + '&dungeonitems=' + di + '&dungeonshuffle=' + (s.dungeonShuffle || '') + '&bossshuffle=' + s.bossshuffle + '&pseudoboots=' + s.pseudoboots + '&mirrorscroll=' + s.mirrorscroll + '&gamemode=' + s.gamemode + '&universalkeys=' + s.universalKeys + '&keydropall=' + s.keyDropAll + '&keydrop=' + s.keyDrop + '&enemykeydrop=' + s.enemyKeyDrop + '&potdrops=' + s.potDrops + '&enemydrops=' + s.enemyDrops + '&potsbones=' + s.potsBones + '&pottery=' + s.pottery, 'alttp-items', 'width=500,height=390,resizable=yes');
+  }
+}
+
+function launchMap() {
+  _clearOnlyAdkd();
+  save();
+  var s    = getSettings();
+  if (IS_ELECTRON) {
+    window.electronAPI.launch({ which: 'map', ...s });
+  } else {
+    var size = Math.round(512 * parseInt(s.zoom) / 100);
+    var w = s.layout === 'vertical' ? size + 20 : size * 2 + 32;
+    var h = size + 92;
+    window.open(mapUrl(s), 'alttp-map', 'width=' + w + ',height=' + h + ',resizable=yes');
+  }
+}
+
+function launchTimer() {
+  save();
+  var s = getSettings();
+  var tc = document.getElementById('timer-color').value || 'blue';
+  var tbg = document.getElementById('timer-bg').value || 'black';
+  if (IS_ELECTRON) {
+    window.electronAPI.launch({ which: 'timer', timerColor: tc, timerBg: tbg, ...s });
+  } else {
+    window.open('timer.html?wshost=' + s.wsHost + '&wsport=' + s.wsPort + '&color=' + tc + '&bg=' + tbg, 'alttp-timer', 'width=300,height=220,resizable=yes');
+  }
+}
+
+// OnlyADKD in one click. It was a preset, but a preset only fills the form —
+// this mode also wants its prebuilt entrance map loaded, which map.html keys
+// off `alttp-preset`, so the two steps are done together and both windows are
+// opened straight away.
+function launchOnlyAdkd() {
+  applyPresetSettings(BUILTIN_PRESETS.onlyadkd);
+  save();
+  try {
+    localStorage.setItem('alttp-preset', 'onlyadkd');
+    localStorage.removeItem('alttp-preset-map-loaded');
+  } catch (e) {}
+  launchBoth(true);
+}
+
+function launchBoth(keepOnlyAdkd) {
+  if (!keepOnlyAdkd) _clearOnlyAdkd();
+  save();
+  var s = getSettings();
+  if (IS_ELECTRON) {
+    window.electronAPI.launch({ which: 'both', ...s });
+  } else {
+    var size = Math.round(512 * parseInt(s.zoom) / 100);
+    var mapW = s.layout === 'vertical' ? size + 20 : size * 2 + 32;
+    var mapH = size + 92;
+    var tbg = document.getElementById('tracker-bg') ? document.getElementById('tracker-bg').value : 'black';
+    var di = s.dungeonItems || 'standard';
+    // gamemode is needed here too — Retro raises every dungeon's chest count.
+    window.open('itemtracker.html?scale=' + s.scale + '&bg=' + tbg + '&dungeonitems=' + di + '&dungeonshuffle=' + (s.dungeonShuffle || '') + '&bossshuffle=' + s.bossshuffle + '&pseudoboots=' + s.pseudoboots + '&mirrorscroll=' + s.mirrorscroll + '&gamemode=' + s.gamemode + '&universalkeys=' + s.universalKeys + '&keydropall=' + s.keyDropAll + '&keydrop=' + s.keyDrop + '&enemykeydrop=' + s.enemyKeyDrop + '&potdrops=' + s.potDrops + '&enemydrops=' + s.enemyDrops + '&potsbones=' + s.potsBones + '&pottery=' + s.pottery, 'alttp-items', 'width=500,height=390,resizable=yes');
+    window.open(mapUrl(s), 'alttp-map', 'width=' + mapW + ',height=' + mapH + ',resizable=yes');
+  }
+}
+
+
+// ── Restore saved values — in Electron pull from electron-store, fallback to localStorage
+window.addEventListener('DOMContentLoaded', async function() {
+  populatePresetDropdown();
+  var saved = {};
+  if (IS_ELECTRON) {
+    saved = await window.electronAPI.loadSettings();
+  }
+  var fields = {
+    'ws-host':           saved.wsHost        || localStorage.getItem('alttp-ws-host'),
+    'ws-port':           saved.wsPort        || localStorage.getItem('alttp-ws-port'),
+    'item-scale':        saved.scale         || localStorage.getItem('alttp-item-scale'),
+    'map-zoom':          saved.zoom          || localStorage.getItem('alttp-map-zoom'),
+    'gt-crystals':       saved.gtCrystals    || localStorage.getItem('alttp-gt-crystals'),
+    'gamemode-select':   saved.gamemode      || localStorage.getItem('alttp-gamemode'),
+    'dungeonitems-select': saved.dungeonItems || localStorage.getItem('alttp-dungeon-items'),
+    'timer-color':       saved.timerColor    || localStorage.getItem('alttp-timer-color'),
+    'timer-bg':          saved.timerBg       || localStorage.getItem('alttp-timer-bg'),
+    'tracker-bg':        saved.trackerBg     || localStorage.getItem('alttp-tracker-bg'),
+    'api-host':          saved.apiHost       || localStorage.getItem('alttp-api-host'),
+    'api-port':          saved.apiPort       || localStorage.getItem('alttp-api-port'),
+    'api-ws-port':       saved.apiWsPort     || localStorage.getItem('alttp-api-ws-port'),
+  };
+  for (var id in fields) {
+    var el = document.getElementById(id);
+    if (el && fields[id]) el.value = fields[id];
+  }
+  // On by default — the race overlay and any external widget read from it, and
+  // a read-only server on localhost costs nothing when nothing is listening.
+  // An explicit saved 'no' still wins.
+  var apiEnabledVal = saved.apiEnabled || localStorage.getItem('alttp-api-enabled') || 'yes';
+  var apiEnabledEl = document.getElementById('api-enabled');
+  if (apiEnabledEl) apiEnabledEl.checked = (apiEnabledVal === 'yes');
+  var enemizer = saved.enemizer || localStorage.getItem('alttp-enemizer') || 'yes';
+  var enemizerToggle = document.getElementById('enemizer-toggle');
+  if (enemizerToggle) enemizerToggle.checked = (enemizer === 'yes');
+  var bsv = saved.bossshuffle || localStorage.getItem('alttp-bossshuffle') || 'yes';
+  var bossshuffleToggle = document.getElementById('bossshuffle-toggle');
+  if (bossshuffleToggle) bossshuffleToggle.checked = (bsv === 'yes');
+  var gm = saved.gamemode || localStorage.getItem('alttp-gamemode') || 'standard';
+  var gmsel = document.getElementById('gamemode-select');
+  if (gmsel) gmsel.value = gm;
+  var di = saved.dungeonItems || localStorage.getItem('alttp-dungeon-items') || 'standard';
+  var disel = document.getElementById('dungeonitems-select');
+  if (disel) disel.value = di;
+  // The four boxes: a stored combination wins, otherwise the mode's preset.
+  var dshufSaved = saved.dungeonShuffle;
+  if (dshufSaved === undefined || dshufSaved === null) {
+    try { dshufSaved = localStorage.getItem('alttp-dungeon-shuffle'); } catch (e) { dshufSaved = null; }
+  }
+  if (dshufSaved === null || dshufSaved === undefined) dshufSaved = DSHUF_PRESETS[di] || '';
+  dshufSet(dshufSaved);
+  var dshufOther = document.getElementById('dshuf-other');
+  if (dshufOther) dshufOther.checked = (di === 'other');
+  dshufWire();
+  var ukVal = saved.universalKeys || localStorage.getItem('alttp-universal-keys') || 'no';
+  var universalkeysToggle = document.getElementById('universalkeys-toggle');
+  if (universalkeysToggle) universalkeysToggle.checked = (ukVal === 'yes');
+
+  var kdaVal = saved.keyDropAll || localStorage.getItem('alttp-keydrop-all') || 'no';
+  var keydropAllToggle = document.getElementById('keydropall-toggle');
+  if (keydropAllToggle) keydropAllToggle.checked = (kdaVal === 'yes');
+
+  var kdVal = saved.keyDrop || localStorage.getItem('alttp-keydrop') || 'no';
+  var keydropToggle = document.getElementById('keydrop-toggle');
+  if (keydropToggle) keydropToggle.checked = (kdVal === 'yes');
+
+  var ekdVal = saved.enemyKeyDrop || localStorage.getItem('alttp-enemy-keydrop') || 'no';
+  var enemyKeydropToggle = document.getElementById('enemykeydrop-toggle');
+  if (enemyKeydropToggle) enemyKeydropToggle.checked = (ekdVal === 'yes');
+
+  var slVal = saved.swordless || localStorage.getItem('alttp-swordless') || 'no';
+  var swordlessToggle = document.getElementById('swordless-toggle');
+  if (swordlessToggle) swordlessToggle.checked = (slVal === 'yes');
+
+  var pbVal = saved.pseudoboots || localStorage.getItem('alttp-pseudoboots') || 'no';
+  var pseudobootsToggle = document.getElementById('pseudoboots-toggle');
+  if (pseudobootsToggle) pseudobootsToggle.checked = (pbVal === 'yes');
+
+  var msVal = saved.mirrorscroll || localStorage.getItem('alttp-mirrorscroll') || 'no';
+  var mirrorscrollToggle = document.getElementById('mirrorscroll-toggle');
+  if (mirrorscrollToggle) mirrorscrollToggle.checked = (msVal === 'yes');
+
+  [['potdrops-toggle', saved.potDrops, 'alttp-pot-drops'],
+   ['enemydrops-toggle', saved.enemyDrops, 'alttp-enemy-drops'],
+   ['potsbones-toggle', saved.potsBones, 'alttp-pots-bones']].forEach(function(d) {
+    var v = d[1] || localStorage.getItem(d[2]) || 'no';
+    var el = document.getElementById(d[0]);
+    if (el) el.checked = (v === 'yes');
+  });
+
+  var logicVal = saved.logicMode || localStorage.getItem('alttp-logic-mode') || 'noglitches';
+  var logicSel = document.getElementById('logicmode-select');
+  if (logicSel) logicSel.value = logicVal;
+
+  var potteryVal = saved.pottery || localStorage.getItem('alttp-pottery');
+  if (!potteryVal) {
+    // Upgrading from the checkbox era: Pot Key Drop became Pottery "Keys",
+    // Pot Drops / Pots and Bones became "Lottery".
+    var oldKeyDrop = localStorage.getItem('alttp-keydrop-all') === 'yes' ||
+                     localStorage.getItem('alttp-keydrop') === 'yes';
+    var oldPotDrop = localStorage.getItem('alttp-pots-bones') === 'yes' ||
+                     localStorage.getItem('alttp-pot-drops') === 'yes';
+    potteryVal = oldPotDrop ? 'lottery' : (oldKeyDrop ? 'keys' : 'none');
+  }
+  var potterySel = document.getElementById('pottery-select');
+  if (potterySel) potterySel.value = potteryVal;
+
+  var edVal = saved.enemyDrop || localStorage.getItem('alttp-enemy-drop-mode');
+  if (!edVal) {
+    var oldEnemyAll = localStorage.getItem('alttp-pots-bones') === 'yes' ||
+                      localStorage.getItem('alttp-enemy-drops') === 'yes';
+    var oldEnemyKey = localStorage.getItem('alttp-keydrop-all') === 'yes' ||
+                      localStorage.getItem('alttp-enemy-keydrop') === 'yes';
+    edVal = oldEnemyAll ? 'all' : (oldEnemyKey ? 'keys' : 'none');
+  }
+  var edSelEl = document.getElementById('enemydrop-select');
+  if (edSelEl) edSelEl.value = edVal;
+
+  var ssVal = saved.shopsanity || localStorage.getItem('alttp-shopsanity') || 'no';
+  var shopsanityToggle = document.getElementById('shopsanity-toggle');
+  if (shopsanityToggle) shopsanityToggle.checked = (ssVal === 'yes');
+
+  var bsVal = saved.bonkShuffle || localStorage.getItem('alttp-bonk-shuffle') || 'no';
+  var bonkshuffleToggle = document.getElementById('bonkshuffle-toggle');
+  if (bonkshuffleToggle) bonkshuffleToggle.checked = (bsVal === 'yes');
+
+  var rpVal = saved.randomPrize || localStorage.getItem('alttp-random-prize') || 'no';
+  var randomprizeToggle = document.getElementById('randomprize-toggle');
+  if (randomprizeToggle) randomprizeToggle.checked = (rpVal === 'yes');
+
+  var raceVal = saved.raceMode || localStorage.getItem('alttp-race-mode') || 'no';
+  var racemodeToggle = document.getElementById('racemode-toggle');
+  if (racemodeToggle) racemodeToggle.checked = (raceVal === 'yes');
+
+  var esVal = saved.entranceShuffle || localStorage.getItem('alttp-entrance-shuffle-mode') || 'none';
+  var esToggleEl = document.getElementById('entranceshuffle-toggle');
+  if (esToggleEl) esToggleEl.checked = (esVal !== 'none');
+
+  // Re-sync the Yes/No text labels now that toggle states were restored.
+  ['entranceshuffle','bossshuffle','enemizer','universalkeys','keydropall','keydrop','enemykeydrop','swordless','pseudoboots','mirrorscroll','shopsanity','bonkshuffle','racemode'].forEach(function(name) {
+    var t = document.getElementById(name + '-toggle');
+    var l = document.getElementById(name + '-toggle-label');
+    if (t && l) l.textContent = t.checked ? 'Yes' : 'No';
+  });
+
+  updateOtherSettingsSummary();
+
+  // Restore the two custom color pickers used by the timer's Custom options
+  var tcCust = localStorage.getItem('alttp-timer-color-custom');
+  if (tcCust && document.getElementById('timer-color-custom')) document.getElementById('timer-color-custom').value = tcCust;
+  var tbCust = localStorage.getItem('alttp-timer-bg-custom');
+  if (tbCust && document.getElementById('timer-bg-custom'))    document.getElementById('timer-bg-custom').value    = tbCust;
+
+});
+
+// ── Other Settings menu ───────────────────────────────────────────────────────
+// Five seed flags behind one row. The button's label summarises what's on, so
+// the state is still readable without opening it.
+// `cfg` is the field name a preset uses for this flag. Keeping it here rather
+// than spelled out again in applyPresetSettings/captureCurrentSettings is what
+// stops a new flag from being half-wired: pseudo boots and the mirror scroll
+// sat in this menu for a release while both of those functions had never heard
+// of them, so custom presets quietly dropped them.
+var OTHER_SETTINGS = [
+  { id: 'universalkeys-toggle',  cfg: 'universalKeys', label: 'Universal Keys',   short: 'Universal Keys' },
+  { id: 'pseudoboots-toggle',    cfg: 'pseudoBoots',   label: 'Pseudo Boots',     short: 'Pseudo Boots' },
+  { id: 'mirrorscroll-toggle',   cfg: 'mirrorScroll',  label: 'Mirror Scroll',    short: 'Mirror Scroll' },
+  { id: 'shopsanity-toggle',     cfg: 'shopsanity',    label: 'Shop Sanity',      short: 'Shop Sanity' },
+  { id: 'bonkshuffle-toggle',    cfg: 'bonkShuffle',   label: 'Bonk Shuffle',     short: 'Bonk Shuffle' },
+  { id: 'randomprize-toggle',    cfg: 'randomPrize',   label: 'Random Prize Shuffle', short: 'Random Prize' }
+];
+
+// Key Drop means both halves, so while it is on the two specific flags are
+// disabled and left out of the summary — listing them would imply they were
+// separate choices.
+// ── which of the six drop-related options are mutually exclusive ──
+//
+// Two families, each a master plus two halves:
+//
+//   Key Drop        = Pot Key Drop Only  + Enemy Key Drop
+//   Pots and Bones  = Pot Drops          + Enemy Drops
+//
+// and the two families collide by SIDE: anything pot-flavoured conflicts with
+// anything else pot-flavoured, same for enemy. Listing the sides is enough to
+// derive every rule Chris asked for (Aug 2026) rather than hard-coding pairs:
+//
+//   Pot Key on      -> Pot Drops, Key Drop, Pots and Bones all dim
+//   Enemy Drops on  -> Enemy Key Drop, Key Drop, Pots and Bones all dim
+//   Key Drop on     -> both its halves, and everything on either side
+//
+// Pot Key and Enemy Key don't collide with each other — different sides — so
+// both stay tickable, which is the whole point of having the two halves.
+var CONFLICT_SIDES = {
+  'keydropall-toggle':   ['pot','enemy'],
+  'keydrop-toggle':      ['pot'],
+  'enemykeydrop-toggle': ['enemy'],
+  'potsbones-toggle':    ['pot','enemy'],
+  'potdrops-toggle':     ['pot'],
+  'enemydrops-toggle':   ['enemy']
+};
+// A half's own master subsumes it rather than conflicting with it: the master
+// dims it even while it stays ticked underneath, which is how a player's own
+// choices survive being covered.
+var FAMILY_MASTER = {
+  'keydrop-toggle':      'keydropall-toggle',
+  'enemykeydrop-toggle': 'keydropall-toggle',
+  'potdrops-toggle':     'potsbones-toggle',
+  'enemydrops-toggle':   'potsbones-toggle'
+};
+
+function syncKeyDropLock() {
+  var ids = Object.keys(CONFLICT_SIDES);
+  var checked = {};
+  ids.forEach(function(id) {
+    var el = document.getElementById(id);
+    checked[id] = !!(el && el.checked);
+  });
+  ids.forEach(function(id) {
+    var master = FAMILY_MASTER[id];
+    var dim;
+    if (master && checked[master]) {
+      dim = true;                       // covered by its own master
+    } else if (checked[id]) {
+      dim = false;                      // never disable what the player just ticked,
+                                        // or a conflicting pair would deadlock
+    } else {
+      dim = ids.some(function(other) {
+        return other !== id && checked[other] &&
+          CONFLICT_SIDES[id].some(function(side) {
+            return CONFLICT_SIDES[other].indexOf(side) !== -1;
+          });
+      });
+    }
+    var t = document.getElementById(id);
+    var row = document.getElementById(id.replace('-toggle', '-row'));
+    if (t) t.disabled = dim;
+    if (row) row.classList.toggle('dimmed', dim);
+  });
+  return checked['keydropall-toggle'];
+}
+
+
+// ── Enemy Drop dropdown ──────────────────────────────────────────────────────
+// A view over the two enemy checkboxes that already exist (and the two masters
+// that force them), so nothing downstream had to change: every flag, preset and
+// URL parameter still reads the checkboxes. Kept in sync both ways — pick a
+// mode here and the boxes follow; tick a box in Other Settings and this
+// follows.
+function updateOtherSettingsSummary() {
+  var el = document.getElementById('other-settings-summary');
+  if (!el) return;
+  syncKeyDropLock();
+  // Anything syncKeyDropLock disabled is covered by something else that is on,
+  // so listing it would imply it was a separate choice. One rule for every
+  // family instead of a list of exceptions.
+  var on = OTHER_SETTINGS.filter(function(o) {
+    var t = document.getElementById(o.id);
+    return t && t.checked && !t.disabled;
+  });
+  if (!on.length) { el.textContent = 'None'; el.style.color = '#666'; return; }
+  // Two names fit; past that the row would overflow its 152px-label layout.
+  el.textContent = on.length <= 2
+    ? on.map(function(o) { return o.short; }).join(', ')
+    : on.length + ' selected';
+  el.style.color = '#4dff88';
+}
+
+function closeOtherSettings() {
+  var p = document.getElementById('other-settings-panel');
+  if (p) p.classList.remove('open');
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  var btn = document.getElementById('other-settings-btn');
+  var panel = document.getElementById('other-settings-panel');
+  if (!btn || !panel) return;
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    panel.classList.toggle('open');
+  });
+  // Every flag in here already has its own change handler elsewhere (save,
+  // label sync); this only keeps the summary honest.
+  OTHER_SETTINGS.forEach(function(o) {
+    var t = document.getElementById(o.id);
+    if (t) t.addEventListener('change', updateOtherSettingsSummary);
+  });
+  // Clicks inside the panel must not close it — the checkboxes live there.
+  panel.addEventListener('click', function(e) { e.stopPropagation(); });
+  document.addEventListener('click', closeOtherSettings);
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeOtherSettings();
+  });
+  updateOtherSettingsSummary();
+});
+
+// ── App Settings panel ────────────────────────────────────────────────────────
+function toggleAppSettings() {
+  var panel = document.getElementById('app-settings-panel');
+  panel.classList.toggle('open');
+}
+// Close panel when clicking outside
+document.addEventListener('click', function(e) {
+  var panel = document.getElementById('app-settings-panel');
+  var btn   = document.getElementById('app-settings-btn');
+  if (panel.classList.contains('open') && !panel.contains(e.target) && e.target !== btn) {
+    panel.classList.remove('open');
+  }
+});
+
+// ── Auto-update UI ────────────────────────────────────────────────────────────
+(function() {
+  if (!window.electronAPI || !window.electronAPI.onUpdateStatus) return;
+
+  var bar        = document.getElementById('update-bar');
+  var barMsg     = document.getElementById('update-bar-msg');
+  var panelStatus = document.getElementById('update-panel-status');
+  var checkBtn   = document.getElementById('check-update-btn');
+
+  function setBar(msg, type, showInstall) {
+    bar.className = 'visible' + (type === 'error' ? ' error' : '');
+    barMsg.textContent = msg;
+    // Remove any existing install button
+    var existing = document.getElementById('install-update-btn');
+    if (existing) existing.remove();
+    if (showInstall) {
+      var btn = document.createElement('button');
+      btn.id = 'install-update-btn';
+      btn.textContent = '↓ Download';
+      btn.onclick = function() { window.electronAPI.installUpdate(); };
+      bar.appendChild(btn);
+    }
+  }
+
+  function hideBar() {
+    bar.className = '';
+  }
+
+  function setPanelStatus(msg, color) {
+    panelStatus.textContent = msg;
+    panelStatus.style.color = color || '#666';
+  }
+
+  window.electronAPI.onUpdateStatus(function(data) {
+    var status = data.status;
+    var info   = data.info;
+
+    if (status === 'checking') {
+      setPanelStatus('Checking…', '#666');
+      checkBtn.disabled = true;
+    }
+    else if (status === 'up-to-date') {
+      hideBar();
+      setPanelStatus('You\'re up to date.', '#4dff88');
+      checkBtn.disabled = false;
+    }
+    else if (status === 'available') {
+      var ver = info && info.version ? ' v' + info.version : '';
+      setBar('Update' + ver + ' available — click to download.', 'info', true);
+      setPanelStatus('Update' + ver + ' available.', '#7ab8f5');
+      checkBtn.disabled = false;
+    }
+  });
+})();
+
+// ── Presets ──────────────────────────────────────────────────────────────────
+var PRESET_STORAGE_KEY = 'alttp-custom-presets'; // { name: settingsObj }
+
+var BUILTIN_PRESETS = {
+  lordseed: {
+    label: 'Lord Seed',
+    dungeonItems: 'standard',
+    gtCrystals: '7',
+    gamemode: 'standard',
+    entranceShuffle: false,
+    bossShuffle: true,
+    enemizer: true,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  standard: {
+    label: 'Standard',
+    dungeonItems: 'standard',
+    gtCrystals: '7',
+    gamemode: 'standard',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  openstandard: {
+    label: 'Open Standard',
+    dungeonItems: 'standard',
+    gtCrystals: '7',
+    gamemode: 'open',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  standardkeysanity: {
+    label: 'Standard KeySanity',
+    dungeonItems: 'keysanity',
+    gtCrystals: '7',
+    gamemode: 'standard',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  openkeysanity: {
+    label: 'Open KeySanity',
+    dungeonItems: 'keysanity',
+    dungeonShuffle: 'mcbk',
+    gtCrystals: '7',
+    gamemode: 'open',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  // ── Community presets, taken from the reference tracker's own definitions ──
+  // Read straight out of its bundle (Sep 2026), so the settings are its, not a
+  // guess. Everything it varies that the tracker doesn't model is dropped,
+  // because none of it changes logic or counts: the goal (Ganon / fast Ganon /
+  // All Dungeons / hunts), starting items and assured swords, activated flute,
+  // ambrosia, follower and bonk shuffle, door and overworld shuffle.
+  cabookey: {
+    label: 'Cabookey',
+    dungeonItems: 'keysanity',
+    dungeonShuffle: 'mcbk',
+    gtCrystals: '7',
+    gamemode: 'standard',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  cabookeydrop: {
+    label: 'Cabookeydrop',
+    dungeonItems: 'keysanity',
+    dungeonShuffle: 'mcbk',
+    gtCrystals: '7',
+    gamemode: 'standard',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'keys',
+    enemyDrop: 'keys',
+  },
+  adenemizer: {
+    label: 'AD Enemizer',
+    dungeonItems: 'standard',
+    dungeonShuffle: '',
+    gtCrystals: '7',
+    gamemode: 'open',
+    entranceShuffle: false,
+    bossShuffle: true,
+    enemizer: true,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  adkeysanity: {
+    label: 'AD Keysanity',
+    dungeonItems: 'keysanity',
+    dungeonShuffle: 'mcbk',
+    gtCrystals: '7',
+    gamemode: 'open',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  adkeydropshop: {
+    label: 'AD Keydrop Shop',
+    dungeonItems: 'keysanity',
+    dungeonShuffle: 'mcbk',
+    gtCrystals: '7',
+    gamemode: 'open',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'keys',
+    enemyDrop: 'none',
+    shopsanity: true,
+  },
+  open47keys: {
+    label: '4/7 Open Keys',
+    dungeonItems: 'keysanity',
+    dungeonShuffle: 'mcbk',
+    gtCrystals: '4',
+    gamemode: 'open',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  mcshuffle: {
+    label: 'MC Shuffle',
+    dungeonItems: 'mapcompass',
+    dungeonShuffle: 'mc',
+    gtCrystals: '7',
+    gamemode: 'open',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  crosskeyskdad: {
+    label: 'Crosskeys KD AD',
+    dungeonItems: 'keysanity',
+    dungeonShuffle: 'mcbk',
+    gtCrystals: '7',
+    gamemode: 'open',
+    entranceShuffle: true,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'keys',
+    enemyDrop: 'keys',
+  },
+  invertedcrosskeys: {
+    label: 'Inverted Crosskeys (1.0)',
+    dungeonItems: 'keysanity',
+    dungeonShuffle: 'mcbk',
+    gtCrystals: '7',
+    gamemode: 'inverted',
+    entranceShuffle: true,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  inverted1: {
+    label: 'Inverted (1.0)',
+    dungeonItems: 'standard',
+    dungeonShuffle: '',
+    gtCrystals: '7',
+    gamemode: 'inverted',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  invertedkeysanity: {
+    label: 'Inverted Keysanity (1.0)',
+    dungeonItems: 'keysanity',
+    dungeonShuffle: 'mcbk',
+    gtCrystals: '7',
+    gamemode: 'inverted',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  invertedadkeysanity: {
+    label: 'Inverted AD Keysanity (1.0)',
+    dungeonItems: 'keysanity',
+    dungeonShuffle: 'mcbk',
+    gtCrystals: '7',
+    gamemode: 'inverted',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  influkeys: {
+    label: 'Influkeys (1.0)',
+    dungeonItems: 'keysanity',
+    dungeonShuffle: 'mcbk',
+    gtCrystals: '7',
+    gamemode: 'inverted',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  enemizerkeydrop: {
+    label: 'Enemizer Keydrop',
+    dungeonItems: 'keysanity',
+    dungeonShuffle: 'mcbk',
+    gtCrystals: '7',
+    gamemode: 'open',
+    entranceShuffle: false,
+    bossShuffle: true,
+    enemizer: true,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'keys',
+    enemyDrop: 'none',
+  },
+  ambrosia: {
+    label: 'Ambrosia',
+    dungeonItems: 'standard',
+    dungeonShuffle: '',
+    gtCrystals: '7',
+    gamemode: 'standard',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  ambroz1a: {
+    label: 'AmbroZ1a',
+    dungeonItems: 'standard',
+    dungeonShuffle: '',
+    gtCrystals: '7',
+    gamemode: 'retro',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+    universalKeys: true,
+  },
+  potpourri: {
+    label: 'Potpourri',
+    dungeonItems: 'mapcompasskeys',
+    dungeonShuffle: 'bk',
+    gtCrystals: '7',
+    gamemode: 'open',
+    entranceShuffle: false,
+    bossShuffle: true,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  potsandbones: {
+    label: 'Pots & Bones',
+    dungeonItems: 'keysanity',
+    dungeonShuffle: 'mcbk',
+    gtCrystals: '7',
+    gamemode: 'standard',
+    entranceShuffle: true,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'lottery',
+    enemyDrop: 'all',
+  },
+  retrance: {
+    label: 'Retrance',
+    dungeonItems: 'mapcompass',
+    dungeonShuffle: 'mcb',
+    gtCrystals: '7',
+    gamemode: 'retro',
+    entranceShuffle: true,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+    universalKeys: true,
+  },
+  shoptillyoudrop: {
+    label: 'Shop Till You Drop',
+    dungeonItems: 'keysanity',
+    dungeonShuffle: 'mcbk',
+    gtCrystals: '7',
+    gamemode: 'retro',
+    entranceShuffle: true,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'keys',
+    enemyDrop: 'keys',
+    shopsanity: true,
+  },
+
+  // Seed options whose names carry one meaning each, so they need no
+  // interpretation: the world state, the enemy shuffle, the sword.
+  retro: {
+    label: 'Retro',
+    dungeonItems: 'standard',
+    gtCrystals: '7',
+    gamemode: 'retro',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  enemizer: {
+    label: 'Enemizer',
+    dungeonItems: 'standard',
+    gtCrystals: '7',
+    gamemode: 'open',
+    entranceShuffle: false,
+    bossShuffle: true,
+    enemizer: true,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  swordless: {
+    label: 'Swordless',
+    dungeonItems: 'standard',
+    gtCrystals: '7',
+    gamemode: 'open',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: true,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  mcboss: {
+    label: 'MCBoss',
+    dungeonItems: 'mapcompass',
+    dungeonShuffle: 'mc',
+    gtCrystals: '7',
+    gamemode: 'open',
+    entranceShuffle: false,
+    bossShuffle: true,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  mcbossenemizer: {
+    label: 'MCBossEnemizer',
+    dungeonItems: 'mapcompass',
+    gtCrystals: '7',
+    gamemode: 'open',
+    entranceShuffle: false,
+    bossShuffle: true,
+    enemizer: true,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  // Inverted 2.0, with the dungeon item shuffle stated as flags rather than a
+  // mode name: 'b' big key, 'k' small keys, 'mcbk' all four (Key Sanity).
+  invertedbk: {
+    label: 'Inverted BK (2.0)',
+    dungeonItems: 'mapcompass',
+    dungeonShuffle: 'b',
+    gtCrystals: '7',
+    gamemode: 'inverted2',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  invertedfullkeys: {
+    label: 'Inverted Full Keys (2.0)',
+    dungeonItems: 'mapcompasskeys',
+    dungeonShuffle: 'bk',
+    gtCrystals: '7',
+    gamemode: 'inverted2',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  invertedfullkeysanity: {
+    label: 'Inverted Full Keysanity (2.0)',
+    dungeonItems: 'keysanity',
+    dungeonShuffle: 'mcbk',
+    gtCrystals: '7',
+    gamemode: 'inverted2',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  crosskeys: {
+    label: 'CrossKeys',
+    dungeonItems: 'keysanity',
+    dungeonShuffle: 'mcbk',
+    gtCrystals: '7',
+    gamemode: 'open',
+    entranceShuffle: true,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+  },
+  // The two AD presets. Both touch the Other Settings menu, which is what
+  // proves applyPresetSettings reaches into that popup — key drop, pseudo boots
+  // and the mirror scroll all live there.
+  //
+  // keyDrop/enemyKeyDrop are stated false on purpose throughout: the master
+  // covers both, and leaving the two halves ticked underneath it would
+  // resurface the moment it came off.
+  adkeydrop: {
+    label: 'AD Keydrop',
+    dungeonItems: 'standard',
+    dungeonShuffle: 'mcbk',
+    gtCrystals: '7',
+    gamemode: 'open',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    universalKeys: false,
+    keyDropAll: true,
+    keyDrop: false,
+    enemyKeyDrop: false,
+    pseudoBoots: false,
+    mirrorScroll: false,
+    logicMode: 'noglitches',
+    pottery: 'keys',
+    enemyDrop: 'keys',
+  },
+  // The fuller one: key sanity, entrance shuffle, and the two display flags.
+  // Was itself called "(AD) KeyDrop" until Aug 2026, when Chris renamed it to
+  // free that name for the plain key-drop preset above.
+  onlyadkd: {
+    label: 'OnlyADKD',
+    dungeonItems: 'keysanity',
+    gtCrystals: '7',
+    gamemode: 'open',
+    entranceShuffle: true,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    universalKeys: false,
+    keyDropAll: true,
+    keyDrop: false,
+    enemyKeyDrop: false,
+    pseudoBoots: true,
+    mirrorScroll: true,
+    logicMode: 'noglitches',
+    pottery: 'keys',
+    enemyDrop: 'keys',
+  }
+};
+
+// ── Dungeon Item Shuffle: presets over four flags ──────────────────────────
+// Letters match js/dngpanel.js: m map, c compass, b big key, k small keys.
+var DSHUF_PRESETS = {
+  standard: '', mapcompass: 'mc', mapcompasskeys: 'mck', keysanity: 'mcbk', other: ''
+};
+function dshufBox(n) { return document.getElementById('dshuf-' + n); }
+function dshufStr() {
+  return ['map','compass','bigkey','smallkey'].map(function (n, i) {
+    var el = dshufBox(n);
+    return (el && el.checked) ? 'mcbk'[i] : '';
+  }).join('');
+}
+function dshufSet(str) {
+  ['map','compass','bigkey','smallkey'].forEach(function (n, i) {
+    var el = dshufBox(n);
+    if (el) el.checked = str.indexOf('mcbk'[i]) !== -1;
+  });
+}
+// The preset this combination is, or 'custom'. 'other' is a display mode
+// rather than a shuffle, so it never wins the match.
+function dshufPresetFor(str) {
+  for (var name in DSHUF_PRESETS) {
+    if (name !== 'other' && DSHUF_PRESETS[name] === str) return name;
+  }
+  return 'custom';
+}
+// What to store as alttp-dungeon-items for a custom combination, so anything
+// still reading the old setting lands somewhere sensible.
+function dshufLegacyMode(str) {
+  var m = dshufPresetFor(str);
+  if (m !== 'custom') return m;
+  if (str.indexOf('b') !== -1 && str.indexOf('k') !== -1) return 'keysanity';
+  if (str.indexOf('k') !== -1) return 'mapcompasskeys';
+  if (str) return 'mapcompass';
+  return 'standard';
+}
+var DSHUF_LABELS = {
+  standard: 'Standard', mapcompass: 'Map/Compass',
+  mapcompasskeys: 'Map/Compass/Small Keys', keysanity: 'Key Sanity',
+  custom: 'Custom', other: 'Other'
+};
+// The button's caption, and the hidden select that everything else reads.
+function dshufSync() {
+  var disel = document.getElementById('dungeonitems-select');
+  var other = document.getElementById('dshuf-other');
+  var sum   = document.getElementById('dshuf-summary');
+  var mode  = (other && other.checked) ? 'other' : dshufPresetFor(dshufStr());
+  if (disel) disel.value = mode;
+  if (!sum) return;
+  if (mode === 'custom') {
+    // Name what is actually ticked — "Custom" alone says nothing.
+    var on = [['map','Map'],['compass','Compass'],['bigkey','Big Key'],['smallkey','Small Keys']]
+      .filter(function (b) { var el = dshufBox(b[0]); return el && el.checked; })
+      .map(function (b) { return b[1]; });
+    sum.textContent = on.length <= 2 ? on.join(', ') : on.length + ' selected';
+    sum.style.color = '#4dff88';
+  } else {
+    sum.textContent = DSHUF_LABELS[mode] || 'Standard';
+    sum.style.color = (mode === 'standard') ? '#666' : '#4dff88';
+  }
+}
+function dshufWire() {
+  var btn   = document.getElementById('dshuf-btn');
+  var panel = document.getElementById('dshuf-panel');
+  var other = document.getElementById('dshuf-other');
+  if (btn && panel && !btn._wired) {
+    btn._wired = true;
+    btn.addEventListener('click', function (e) { e.stopPropagation(); panel.classList.toggle('open'); });
+    panel.addEventListener('click', function (e) { e.stopPropagation(); });
+    document.addEventListener('click', function () { panel.classList.remove('open'); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') panel.classList.remove('open');
+    });
+  }
+  ['map','compass','bigkey','smallkey'].forEach(function (n) {
+    var el = dshufBox(n);
+    if (!el || el._wired) return;
+    el._wired = true;
+    el.addEventListener('change', function () {
+      // Ticking a shuffled item is a choice to track them, so it clears Other.
+      if (other && other.checked) other.checked = false;
+      dshufSync();
+    });
+  });
+  if (other && !other._wired) {
+    other._wired = true;
+    // Other means the dungeon items aren't tracked at all, so nothing is shuffled.
+    other.addEventListener('change', function () {
+      if (other.checked) dshufSet('');
+      dshufSync();
+    });
+  }
+  dshufSync();
+}
+
+// Apply a settings object to the actual form controls on the page.
+function applyPresetSettings(cfg) {
+  if (!cfg) return;
+  var disel = document.getElementById('dungeonitems-select');
+  if (disel && cfg.dungeonItems !== undefined) {
+    disel.value = cfg.dungeonItems;
+    // The four boxes: a preset that states them wins; otherwise the mode it
+    // names is a preset over them.
+    if (cfg.dungeonShuffle !== undefined) dshufSet(cfg.dungeonShuffle);
+    else if (DSHUF_PRESETS[cfg.dungeonItems] !== undefined) dshufSet(DSHUF_PRESETS[cfg.dungeonItems]);
+    var oth = document.getElementById('dshuf-other');
+    if (oth) oth.checked = (cfg.dungeonItems === 'other');
+    if (typeof dshufSync === 'function') dshufSync();
+  }
+  var gtsel = document.getElementById('gt-crystals');
+  if (gtsel && cfg.gtCrystals !== undefined) gtsel.value = cfg.gtCrystals;
+  var gmsel = document.getElementById('gamemode-select');
+  if (gmsel && cfg.gamemode !== undefined) gmsel.value = cfg.gamemode;
+
+  var esToggle = document.getElementById('entranceshuffle-toggle');
+  if (esToggle && cfg.entranceShuffle !== undefined) esToggle.checked = !!cfg.entranceShuffle;
+  var bsToggle = document.getElementById('bossshuffle-toggle');
+  if (bsToggle && cfg.bossShuffle !== undefined) bsToggle.checked = !!cfg.bossShuffle;
+  var enToggle = document.getElementById('enemizer-toggle');
+  if (enToggle && cfg.enemizer !== undefined) enToggle.checked = !!cfg.enemizer;
+  var swToggle = document.getElementById('swordless-toggle');
+  if (swToggle && cfg.swordless !== undefined) swToggle.checked = !!cfg.swordless;
+  var potSel = document.getElementById('pottery-select');
+  if (potSel && cfg.pottery !== undefined) potSel.value = cfg.pottery;
+  var lmSel = document.getElementById('logicmode-select');
+  if (lmSel && cfg.logicMode !== undefined) lmSel.value = cfg.logicMode;
+  var edSel = document.getElementById('enemydrop-select');
+  if (edSel && cfg.enemyDrop !== undefined) edSel.value = cfg.enemyDrop;
+  // Presets written before the dropdowns existed (every built-in one) say
+  // keyDropAll / potsBones / the four halves. Translate rather than rewrite
+  // them, so an old custom preset still means what its author intended.
+  // A preset SETS this menu rather than patching it (see the note above), so a
+  // preset that mentions none of these means none of them — otherwise loading
+  // Standard after OnlyADKD would leave key drop quietly on.
+  if (potSel && cfg.pottery === undefined) {
+    potSel.value = (cfg.potsBones || cfg.potDrops) ? 'lottery'
+                 : (cfg.keyDropAll || cfg.keyDrop) ? 'keys' : 'none';
+  }
+  if (edSel && cfg.enemyDrop === undefined) {
+    edSel.value = (cfg.potsBones || cfg.enemyDrops)         ? 'all'
+                : (cfg.keyDropAll || cfg.enemyKeyDrop)      ? 'keys' : 'none';
+  }
+  // ── the Other Settings menu is SET, not patched ──
+  // Everything above leaves an unmentioned field alone. These six don't: a
+  // preset that doesn't name a flag turns it OFF. Chris, Aug 2026 — loading
+  // Open Standard after (AD) KeyDrop left key drop and the mirror scroll still
+  // ticked, which is not what picking a preset means.
+  //
+  // Custom presets are unaffected either way: captureCurrentSettings() writes
+  // all six explicitly, so they always say what they want.
+  OTHER_SETTINGS.forEach(function(o) {
+    var t = document.getElementById(o.id);
+    if (t) t.checked = !!cfg[o.cfg];
+  });
+
+  // Re-sync the Yes/No text labels and persist the now-applied settings.
+  ['entranceshuffle','bossshuffle','enemizer','universalkeys','keydropall','keydrop','enemykeydrop','swordless','pseudoboots','mirrorscroll','shopsanity','bonkshuffle','racemode'].forEach(function(name) {
+    var t = document.getElementById(name + '-toggle');
+    var l = document.getElementById(name + '-toggle-label');
+    if (t && l) l.textContent = t.checked ? 'Yes' : 'No';
+  });
+  // The Other Settings popup has its own derived state — the dimming of the two
+  // key-drop halves under the master, and the summary line that reports what is
+  // on without opening it. Neither redraws itself, so a preset that changes a
+  // checkbox in there has to say so.
+  if (typeof syncKeyDropLock === 'function') syncKeyDropLock();
+  if (typeof updateOtherSettingsSummary === 'function') updateOtherSettingsSummary();
+  save();
+}
+
+function loadCustomPresets() {
+  try { return JSON.parse(localStorage.getItem(PRESET_STORAGE_KEY) || '{}'); }
+  catch (ex) { return {}; }
+}
+
+function saveCustomPresets(presets) {
+  localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(presets));
+}
+
+// Capture the current state of all preset-relevant controls into a plain object.
+function captureCurrentSettings() {
+  var out = {
+    dungeonItems: document.getElementById('dungeonitems-select') ? document.getElementById('dungeonitems-select').value : 'standard',
+    gtCrystals:   document.getElementById('gt-crystals') ? document.getElementById('gt-crystals').value : '7',
+    gamemode:     document.getElementById('gamemode-select') ? document.getElementById('gamemode-select').value : 'standard',
+    entranceShuffle: !!(document.getElementById('entranceshuffle-toggle') && document.getElementById('entranceshuffle-toggle').checked),
+    bossShuffle:     !!(document.getElementById('bossshuffle-toggle') && document.getElementById('bossshuffle-toggle').checked),
+    enemizer:        !!(document.getElementById('enemizer-toggle') && document.getElementById('enemizer-toggle').checked),
+    swordless:       !!(document.getElementById('swordless-toggle') && document.getElementById('swordless-toggle').checked),
+    pottery:      potteryValue(),
+    enemyDrop:    enemyDropValue(),
+    logicMode:    (document.getElementById('logicmode-select') || {}).value || 'noglitches',
+  };
+  // The Other Settings menu, from the one list that defines it — so adding a
+  // seventh flag there carries it into custom presets for free.
+  OTHER_SETTINGS.forEach(function(o) {
+    var t = document.getElementById(o.id);
+    out[o.cfg] = !!(t && t.checked);
+  });
+  return out;
+}
+
+// Populate the preset dropdown with any custom presets saved in localStorage,
+// in addition to the built-in ones already in the markup.
+function populatePresetDropdown() {
+  var sel = document.getElementById('preset-select');
+  if (!sel) return;
+  var customPresets = loadCustomPresets();
+  Object.keys(customPresets).forEach(function(name) {
+    // Avoid duplicate <option> entries if this runs more than once.
+    if (sel.querySelector('option[value="custom:' + CSS.escape(name) + '"]')) return;
+    var opt = document.createElement('option');
+    opt.value = 'custom:' + name;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  });
+  orderPresetOptions();
+}
+
+function applyPreset() {
+  var sel = document.getElementById('preset-select');
+  var val = sel ? sel.value : '';
+  if (!val) return;
+  // map.html reads this to decide whether a preset brings its own prebuilt
+  // entrance map (OnlyADKD does). Clearing the "loaded" marker means picking
+  // the preset again re-applies that map.
+  try {
+    localStorage.setItem('alttp-preset', val);
+    localStorage.removeItem('alttp-preset-map-loaded');
+  } catch (e) {}
+  if (BUILTIN_PRESETS[val]) {
+    applyPresetSettings(BUILTIN_PRESETS[val]);
+    return;
+  }
+  if (val.indexOf('custom:') === 0) {
+    var name = val.slice('custom:'.length);
+    var customPresets = loadCustomPresets();
+    if (customPresets[name]) applyPresetSettings(customPresets[name]);
+  }
+}
+
+// The button next to the dropdown. Picking the preset already loaded it, so
+// this only opens the two windows — anything the player changed by hand after
+// selecting is kept rather than being reset back to the preset.
+function launchPreset() {
+  var sel = document.getElementById('preset-select');
+  // OnlyADKD's marker tells map.html to use its prebuilt entrance map, and
+  // launchBoth clears that marker unless told to keep it.
+  launchBoth(!!sel && sel.value === 'onlyadkd');
+}
+
+function saveCustomPreset() {
+  var input = document.getElementById('preset-modal-input');
+  if (input) input.value = '';
+  var overlay = document.getElementById('preset-modal-overlay');
+  if (overlay) {
+    overlay.classList.add('open');
+    if (input) setTimeout(function() { input.focus(); }, 50);
+  }
+}
+
+function presetModalClose() {
+  var overlay = document.getElementById('preset-modal-overlay');
+  if (overlay) overlay.classList.remove('open');
+}
+
+function presetModalConfirm() {
+  var input = document.getElementById('preset-modal-input');
+  var name = input ? input.value.trim() : '';
+  if (!name) return;
+  presetModalClose();
+
+  var customPresets = loadCustomPresets();
+  customPresets[name] = captureCurrentSettings();
+  saveCustomPresets(customPresets);
+
+  var sel = document.getElementById('preset-select');
+  if (sel) {
+    var value = 'custom:' + name;
+    var existing = sel.querySelector('option[value="' + value.replace(/"/g, '\\"') + '"]');
+    if (!existing) {
+      var opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = name;
+      sel.appendChild(opt);
+    }
+    sel.value = value;
+    orderPresetOptions();
+  }
+  updateDeleteBtn();
+}
+
+function deleteCustomPreset() {
+  var sel = document.getElementById('preset-select');
+  if (!sel) return;
+  var val = sel.value;
+  if (!val || val.indexOf('custom:') !== 0) return;
+  var name = val.slice('custom:'.length);
+  if (!confirm('Delete preset "' + name + '"?')) return;
+  var customPresets = loadCustomPresets();
+  delete customPresets[name];
+  saveCustomPresets(customPresets);
+  savePresetFavorites(loadPresetFavorites().filter(function (v) { return v !== val; }));
+  var opt = sel.querySelector('option[value="' + val.replace(/"/g, '\\"') + '"]');
+  if (opt) opt.remove();
+  sel.selectedIndex = 0;
+  updateDeleteBtn();
+}
+
+// ── Favorite presets: starred ones sit at the top of the list ──────────────
+// Stored as the option values, so built-ins and custom presets both work.
+var PRESET_FAV_KEY = 'alttp-preset-favorites';
+function loadPresetFavorites() {
+  try { return JSON.parse(localStorage.getItem(PRESET_FAV_KEY) || '[]'); }
+  catch (ex) { return []; }
+}
+function savePresetFavorites(favs) {
+  try { localStorage.setItem(PRESET_FAV_KEY, JSON.stringify(favs)); } catch (ex) {}
+}
+// Favorites move to just under "— None —", in the order they were starred;
+// everything else goes back to its original place.
+function orderPresetOptions() {
+  var sel = document.getElementById('preset-select');
+  if (!sel) return;
+  var favs = loadPresetFavorites();
+  var opts = Array.prototype.slice.call(sel.options);
+  opts.forEach(function (o, i) {
+    if (o.dataset.label === undefined) { o.dataset.label = o.textContent; o.dataset.pos = i; }
+    var fav = favs.indexOf(o.value) !== -1;
+    o.textContent = (fav ? '\u2605 ' : '') + o.dataset.label;
+  });
+  var none = opts.filter(function (o) { return !o.value; });
+  var starred = favs.map(function (v) { return opts.filter(function (o) { return o.value === v; })[0]; })
+                    .filter(Boolean);
+  var rest = opts.filter(function (o) { return o.value && favs.indexOf(o.value) === -1; })
+                 .sort(function (a, b) { return a.dataset.pos - b.dataset.pos; });
+  var cur = sel.value;
+  none.concat(starred, rest).forEach(function (o) { sel.appendChild(o); });
+  sel.value = cur;
+  updateFavBtn();
+}
+function togglePresetFavorite() {
+  var sel = document.getElementById('preset-select');
+  if (!sel || !sel.value) return;
+  var favs = loadPresetFavorites();
+  var i = favs.indexOf(sel.value);
+  if (i === -1) favs.push(sel.value); else favs.splice(i, 1);
+  savePresetFavorites(favs);
+  orderPresetOptions();
+}
+function updateFavBtn() {
+  var sel = document.getElementById('preset-select');
+  var btn = document.getElementById('preset-fav-btn');
+  if (!sel || !btn) return;
+  var on = !!sel.value && loadPresetFavorites().indexOf(sel.value) !== -1;
+  btn.disabled = !sel.value;
+  btn.classList.toggle('on', on);
+  btn.innerHTML = on ? '&#9733;' : '&#9734;';
+}
+
+function updateDeleteBtn() {
+  var sel = document.getElementById('preset-select');
+  var btn = document.getElementById('preset-delete-btn');
+  if (!sel || !btn) return;
+  btn.style.display = (sel.value && sel.value.indexOf('custom:') === 0) ? '' : 'none';
+  updateFavBtn();
+}
+
+// Close modal on overlay click
+document.addEventListener('DOMContentLoaded', function() {
+  var overlay = document.getElementById('preset-modal-overlay');
+  if (overlay) overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) presetModalClose();
+  });
+  var input = document.getElementById('preset-modal-input');
+  if (input) input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') presetModalConfirm();
+    if (e.key === 'Escape') presetModalClose();
+  });
+  var sel = document.getElementById('preset-select');
+  // Picking a preset loads it straight away; the button is only for launching
+  // (Chris, Sep 2026). Fires on user interaction only, so restoring the saved
+  // settings at startup can't be overwritten by whatever option happens to be
+  // marked `selected` in the markup.
+  if (sel) sel.addEventListener('change', function () {
+    updateDeleteBtn();
+    applyPreset();
+    // The preset has just overwritten the form, so a seed link still sitting
+    // there — and the hash beside it — describe settings that are no longer
+    // loaded. Clear both rather than leave them contradicting the form
+    // (Chris, Sep 2026).
+    var link = document.getElementById('seed-link');
+    if (link) link.value = '';
+    seedStatus('', '');
+    window._lastSeedMetaRaw = null;
+    window._lastSeedApplied = null;
+  });
+});
+
+// ── User Guide ───────────────────────────────────────────────────────────────
+var USER_GUIDE_URL = 'https://github.com/hutchch/ALTTPR-Tracker/wiki';
+function openUserGuide() {
+  if (IS_ELECTRON && window.electronAPI.openExternal) {
+    window.electronAPI.openExternal(USER_GUIDE_URL);
+  } else {
+    window.open(USER_GUIDE_URL, '_blank');
+  }
+}
+
+// Pick a .trkpatch and apply it (main.js does the work and offers a restart).
+// Only in the desktop app — a browser can't write the app's files.
+function applyPatch() {
+  if (!window.electronAPI || !window.electronAPI.applyPatch) return;
+  var status = document.getElementById('update-panel-status');
+  var btn = document.getElementById('apply-patch-btn');
+  btn.disabled = true;
+  window.electronAPI.applyPatch().then(function (r) {
+    btn.disabled = false;
+    if (!r || r.canceled) return;
+    status.textContent = !r.ok ? r.error
+      : r.upToDate ? 'Already up to date — nothing to patch.'
+      : ('Patch applied (' + r.count + ' files) — restart to load it.');
+    status.style.color = r.ok ? '#4dff88' : '#ff7777';
+  }, function (e) {
+    btn.disabled = false;
+    status.textContent = 'Patch failed: ' + e; status.style.color = '#ff7777';
+  });
+}
+
+function manualCheckUpdate() {
+  if (!window.electronAPI || !window.electronAPI.checkForUpdates) return;
+  document.getElementById('update-panel-status').textContent = 'Checking…';
+  document.getElementById('update-panel-status').style.color = '#666';
+  var btn = document.getElementById('check-update-btn');
+  btn.disabled = true;
+  // Re-enable after 10s in case the error was suppressed and no status arrives
+  setTimeout(function() {
+    btn.disabled = false;
+    var status = document.getElementById('update-panel-status');
+    if (status.textContent === 'Checking…') status.textContent = '';
+  }, 10000);
+  window.electronAPI.checkForUpdates();
+}
+</script>
+</body>
+</html>

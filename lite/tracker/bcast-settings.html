@@ -1,0 +1,1454 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Broadcast Settings</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: #000;
+  width: 100%; height: 100%;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+
+/* Background themes */
+[data-bg="grey"]        body, body[data-bg="grey"]        { background: #333 !important; }
+[data-bg="white"]       body, body[data-bg="white"]       { background: #fff !important; }
+[data-bg="transparent"] body, body[data-bg="transparent"] { background: transparent !important; }
+
+/* Transparent mode — push content down so it doesn't sit under macOS traffic
+   lights / Windows caption buttons, and provide a drag strip up top. */
+html[data-bg="transparent"] body {
+  padding-top: 30px;
+}
+html[data-bg="transparent"] body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 140px;
+  height: 30px;
+  -webkit-app-region: drag;
+  z-index: 9999;
+}
+html[data-bg="transparent"] .bbg-bar {
+  -webkit-app-region: drag;
+  background: rgba(0,0,0,0.6) !important;
+  border-top-color: rgba(255,255,255,0.2) !important;
+}
+html[data-bg="transparent"] .bbg-bar * {
+  -webkit-app-region: no-drag;
+}
+
+.broadcast-container {
+  background: inherit;
+  padding: 8px 6px 2px 8px;
+  display: flex; flex-direction: column; gap: 2px;
+  flex: 1; overflow: hidden;
+}
+
+/* Image-mode background — driven by --bg-image set from JS */
+[data-bg="image"] body, body[data-bg="image"] {
+  background-color: #000 !important;
+  background-image: var(--bg-image, none) !important;
+  background-size: cover !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+}
+.bcast-row { display: flex; flex-direction: row; gap: 2px; align-items: center; }
+
+/* Item slots ------------------------------------------------------------- */
+.bslot {
+  width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  position: relative; flex-shrink: 0;
+}
+.bslot img { width: 36px; height: 36px; image-rendering: pixelated; image-rendering: crisp-edges; position: relative; z-index: 2; }
+.bslot::before {
+  content: '';
+  position: absolute; inset: 2px;
+  border-radius: 4px;
+  background: linear-gradient(to bottom left, var(--item-fill-color, #2ecc71), var(--item-fill-color2, #b675ff));
+  opacity: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.bslot.filled::before { opacity: 0.7; }
+
+/* Effects: applied only on the transition INTO the filled state.
+   "Starburst" — uniform fade-in that reads as a soft burst of color.
+   "No Effect" — radial mask that closes from the edges inward.
+   Both intentionally slow so the change is dramatic on a stream. */
+.bslot.filled.fx-falling::before { animation: fx-falling 0.6s ease-out; }
+.bslot.filled.fx-fade::before    { animation: fx-fade    0.9s ease-out; }
+.bslot.filled.fx-edges::before   { animation: fx-edges   1.0s ease-in;  }
+
+@keyframes fx-falling {
+  from { transform: translateY(-100%); opacity: 0.7; }
+  to   { transform: translateY(0);     opacity: 0.7; }
+}
+@keyframes fx-fade {
+  from { opacity: 0; }
+  to   { opacity: 0.7; }
+}
+
+/* fx-edges: mask shrinks from edges inward.
+   Driven by a registered custom property so the percentage animates smoothly. */
+@property --edges-reveal {
+  syntax: '<percentage>';
+  initial-value: 0%;
+  inherits: false;
+}
+.bslot.filled.fx-edges::before,
+.bslot-bottles.filled.fx-edges::before,
+.bright-slot.bslot-icon.filled.fx-edges::before,
+.bcombo-img.filled.fx-edges::before {
+  -webkit-mask-image: radial-gradient(circle at 50% 50%,
+    transparent calc(var(--edges-reveal, 0%) - 0.5%),
+    #000        var(--edges-reveal, 0%));
+          mask-image: radial-gradient(circle at 50% 50%,
+    transparent calc(var(--edges-reveal, 0%) - 0.5%),
+    #000        var(--edges-reveal, 0%));
+}
+@keyframes fx-edges {
+  from { --edges-reveal: 80%; opacity: 0.7; }
+  to   { --edges-reveal: 0%;  opacity: 0.7; }
+}
+
+.bmed-label {
+  position: absolute; bottom: 1px; right: 1px;
+  font-size: 10px; font-weight: bold; color: #fff; text-transform: uppercase;
+  text-shadow: 0 0 2px #000, 0 0 2px #000;
+  z-index: 3;
+}
+
+.bslot-bottles {
+  width: 40px; height: 40px;
+  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+  gap: 1px; flex-shrink: 0;
+  position: relative;
+}
+.bslot-bottles::before {
+  content: '';
+  position: absolute; inset: 1px;
+  border-radius: 4px;
+  background: linear-gradient(to bottom left, var(--item-fill-color, #2ecc71), var(--item-fill-color2, #b675ff));
+  opacity: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.bslot-bottles.filled::before { opacity: 0.7; }
+.bslot-bottles.filled.fx-falling::before { animation: fx-falling 0.6s ease-out; }
+.bslot-bottles.filled.fx-fade::before    { animation: fx-fade    0.9s ease-out; }
+.bslot-bottles.filled.fx-edges::before   { animation: fx-edges   1.0s ease-in;  }
+.bminibottle { display: flex; align-items: center; justify-content: center; position: relative; z-index: 2; }
+.bminibottle img { width: 18px; height: 18px; image-rendering: pixelated; }
+
+/* Combined dual-item slot (e.g. Powder/Mushroom, Flute/Shovel)
+   Upper-left item / lower-right item, diagonal fill per sub-item. */
+.bslot-combo {
+  width: 40px; height: 40px;
+  position: relative; flex-shrink: 0;
+}
+/* First child = upper-left */
+.bcombo-img:first-child {
+  position: absolute; top: 1px; left: 1px;
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 2;
+}
+/* Second child = lower-right */
+.bcombo-img:last-child {
+  position: absolute; bottom: 1px; right: 1px;
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 2;
+}
+.bcombo-img img { width: 20px; height: 20px; image-rendering: pixelated; image-rendering: crisp-edges; position: relative; z-index: 2; }
+
+/* Per-item triangular fill via ::before on each .bcombo-img */
+.bcombo-img::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(to bottom left, var(--item-fill-color, #2ecc71), var(--item-fill-color2, #b675ff));
+  opacity: 0;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: 3px;
+}
+/* Upper-left triangle: top-left → top-right → bottom-left */
+.bcombo-img:first-child::before  { clip-path: polygon(0% 0%, 100% 0%, 0% 100%); }
+/* Lower-right triangle: top-right → bottom-right → bottom-left */
+.bcombo-img:last-child::before   { clip-path: polygon(100% 0%, 100% 100%, 0% 100%); }
+
+.bcombo-img.filled::before { opacity: 0.7; }
+.bcombo-img.filled.fx-falling::before { animation: fx-falling 0.6s ease-out; }
+.bcombo-img.filled.fx-fade::before    { animation: fx-fade    0.9s ease-out; }
+.bcombo-img.filled.fx-edges::before   { animation: fx-edges   1.0s ease-in;  }
+
+/* Go Mode button */
+.bgo-btn {
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 2px solid currentColor;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: bold; font-family: Arial, sans-serif;
+  color: #666; background: transparent;
+  transition: background 0.15s, color 0.15s;
+}
+.bgo-btn.on      { background: #2ecc71; color: #000; }
+.bgo-btn.feeling { background: #eee600; color: #000; }
+
+/* Right-column: agahnim / gomode / stats — wider so they line up vertically */
+.bright-slot {
+  width: 82px; height: 40px;
+  display: flex; align-items: center; justify-content: flex-start;
+  position: relative; flex-shrink: 0;
+  padding-left: 6px;
+}
+.bright-slot.bslot-icon img { width: 36px; height: 36px; image-rendering: pixelated; position: relative; z-index: 2; }
+.bright-slot.bslot-icon::before {
+  content: '';
+  position: absolute; left: 6px; top: 2px; width: 36px; bottom: 2px;
+  border-radius: 4px;
+  background: linear-gradient(to bottom left, var(--item-fill-color, #2ecc71), var(--item-fill-color2, #b675ff));
+  opacity: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.bright-slot.bslot-icon.filled::before { opacity: 0.7; }
+.bright-slot.bslot-icon.filled.fx-falling::before { animation: fx-falling 0.6s ease-out; }
+.bright-slot.bslot-icon.filled.fx-fade::before    { animation: fx-fade    0.9s ease-out; }
+.bright-slot.bslot-icon.filled.fx-edges::before   { animation: fx-edges   1.0s ease-in;  }
+
+/* Go Mode (right-column) */
+.bgo-btn {
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 2px solid currentColor;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: bold; font-family: Arial, sans-serif;
+  color: #666; background: transparent;
+  transition: background 0.15s, color 0.15s;
+}
+.bgo-btn.on      { color: #2ecc71; background: #2ecc71; color: #000; }
+.bgo-btn.feeling { color: #eee600; background: #eee600; color: #000; }
+
+/* Stats — fixed width labels so numbers align */
+.bstats-slot {
+  width: 82px; height: 40px;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
+  gap: 1px; padding-left: 4px;
+  flex-shrink: 0;
+}
+.bstat-row { display: flex; align-items: center; gap: 6px; font-family: Arial, sans-serif; font-size: 10px; font-weight: bold; }
+.bstat-label { color: #888; width: 32px; flex-shrink: 0; }
+.bstat-check { color: #4dff88; }
+.bstat-death { color: #ff4444; }
+.bstat-bonk  { color: #ffa500; }
+
+#gomode-spark-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 10;
+  display: none;
+}
+#gomode-spark-canvas.active { display: block; }
+
+/* Dungeon slot — item-tracker style ------------------------------------- */
+.bdng-slot {
+  background: #111; border: 1px solid #2a2a2a; border-radius: 4px;
+  padding: 3px 2px;
+  display: flex; flex-direction: column;
+  align-items: center; gap: 2px; flex-shrink: 0;
+  width: 46px;
+  transition: background 0.3s, border-color 0.3s;
+}
+/* "Dungeon Box" toggle — strip the default container so dungeons look like
+   the items around them. Defined BEFORE the state classes so chests-done /
+   prize-done still take effect (their tints override "no box"). */
+.bdng-slot.no-box {
+  background: transparent;
+  border-color: transparent;
+}
+.bdng-slot.chests-done {
+  background: color-mix(in srgb, var(--chests-color, #5a8eff) 35%, #000);
+  border-color: var(--chests-color, #5a8eff);
+}
+.bdng-slot.prize-done {
+  background: color-mix(in srgb, var(--complete-color, #4dff88) 35%, #000);
+  border-color: var(--complete-color, #4dff88);
+}
+/* Boss defeated (prize obtained) but chests aren't done — green outline only
+   to match the "complete" colour, no background tint. Applied to every
+   dungeon (used to be pendant-only). */
+.bdng-slot.prize-only  { border-color: var(--complete-color, #4dff88); }
+
+/* Classic view dungeon slot — compact: just the label + prize.
+   Big-key / map / compass / small-key / chests rows are all hidden. */
+.bdng-slot.classic {
+  width: 40px;
+  padding: 2px;
+  gap: 1px;
+  justify-content: center;
+}
+.bdng-slot.classic .bdng-icons,
+.bdng-slot.classic .bdng-keys-row,
+.bdng-slot.classic .bdng-chests-row,
+.bdng-slot.classic .bdng-bigkey-top { display: none; }
+.bdng-slot.classic .bdng-name { font-size: 10px; line-height: 1.1; }
+.bdng-slot.classic .bdng-prize { width: 18px; height: 18px; }
+.bdng-slot.classic .bdng-top { gap: 0; }
+
+/* Label centered on its own row */
+.bdng-name {
+  font-family: Arial, sans-serif; font-size: 10px; font-weight: bold;
+  color: #ccc; line-height: 1;
+  text-align: center;
+  width: 100%;
+}
+
+/* All icon/value rows are centered horizontally */
+.bdng-top,
+.bdng-icons,
+.bdng-row {
+  display: flex; flex-direction: row; align-items: center;
+  justify-content: center; gap: 2px;
+}
+
+/* Prize + big key row (under the label) */
+.bdng-top img {
+  width: 12px; height: 12px;
+  image-rendering: pixelated;
+}
+
+/* Map + compass row */
+.bdng-icons img {
+  width: 12px; height: 12px;
+  image-rendering: pixelated;
+}
+
+/* Small keys / chests rows */
+.bdng-row img {
+  width: 10px; height: 10px;
+  image-rendering: pixelated;
+}
+.bdng-row span {
+  font-family: Arial, sans-serif; font-size: 8px; color: #ccc;
+  line-height: 1;
+}
+.bdng-row .bdng-keys.full   { color: #2ecc71; }
+.bdng-row .bdng-chests.full { color: #2ecc71; }
+
+/* Bottom bar with Settings ---------------------------------------------- */
+.bbg-bar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 8px;
+  background: #111;
+  border-top: 1px solid #222;
+  flex-shrink: 0;
+  position: relative; z-index: 30000;
+  width: 100%;
+}
+.bsettings-btn {
+  font-family: Arial, sans-serif; font-size: 10px; color: #ccc;
+  background: #1a1a1a; border: 1px solid #444; border-radius: 3px;
+  padding: 2px 8px; cursor: pointer; outline: none;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.bsettings-btn:hover { border-color: #4dff88; color: #fff; }
+.bsettings-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.bsettings-btn:disabled:hover { border-color: inherit; color: inherit; }
+.bsize-btn { padding: 2px 5px; min-width: 20px; justify-content: center; font-size: 13px; line-height: 1; }
+
+/* ── Item Animation overlay ─────────────────────────────────────────────── */
+#item-anim-overlay {
+  position: fixed; top: 0; left: 0; right: 0;
+  /* bottom is set dynamically in JS to stop above the bbg-bar */
+  bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 20000;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+#item-anim-overlay.anim-visible {
+  opacity: 1;
+  pointer-events: none;
+}
+#item-anim-canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  z-index: 1;
+}
+#item-anim-img {
+  width: 40px; height: 40px;
+  image-rendering: pixelated; image-rendering: crisp-edges;
+  transform-origin: center center;
+  position: relative; z-index: 2;
+}
+#item-anim-label {
+  position: absolute; bottom: 18px; left: 0; right: 0;
+  text-align: center;
+  font-family: Arial, sans-serif; font-size: 22px; font-weight: bold;
+  color: #fff;
+  text-shadow: 0 0 12px rgba(0,0,0,0.9), 1px 1px 3px #000, -1px -1px 3px #000;
+  letter-spacing: 1px;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+#item-anim-overlay.anim-visible #item-anim-label.label-show { opacity: 1; }
+
+/* Phase 1: spin in from tiny → window height over 1.4s */
+@keyframes item-spin-grow {
+  0%   { transform: scale(0.05) rotate(0deg);   opacity: 0; }
+  15%  { opacity: 1; }
+  100% { transform: scale(var(--anim-peak-scale)) rotate(720deg); opacity: 1; }
+}
+/* Phase 2: shrink back to slot-size over 0.8s */
+@keyframes item-shrink {
+  0%   { transform: scale(var(--anim-peak-scale)) rotate(720deg); }
+  100% { transform: scale(1) rotate(720deg); }
+}
+/* Phase 3: slot bounce — the slot img does a quick pop when item settles */
+@keyframes slot-bounce {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.35); }
+  70%  { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+
+#item-anim-img.phase-grow   { animation: item-spin-grow 1.4s cubic-bezier(0.2,0,0.4,1) forwards; }
+#item-anim-img.phase-shrink { animation: item-shrink    0.8s cubic-bezier(0.4,0,0.2,1) forwards; }
+
+.slot-bounce { animation: slot-bounce 0.35s ease-out; }
+
+/* Settings modal -------------------------------------------------------- */
+#settings-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 10000;
+}
+#settings-overlay.hidden { display: none; }
+.settings-modal {
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 6px;
+  width: 320px; max-width: 92%;
+  max-height: 90%;
+  overflow-y: auto;
+  font-family: Arial, sans-serif; color: #ddd;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+}
+.settings-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; border-bottom: 1px solid #333;
+}
+.settings-header h3 { font-size: 13px; color: #fff; margin: 0; }
+.settings-close {
+  background: transparent; border: none; color: #888; font-size: 18px;
+  cursor: pointer; line-height: 1; padding: 0 4px;
+}
+.settings-close:hover { color: #fff; }
+.settings-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 12px; }
+.settings-section { display: flex; flex-direction: column; gap: 6px; }
+.settings-section > h4 {
+  font-size: 11px; color: #4dff88; text-transform: uppercase;
+  letter-spacing: 0.5px; font-weight: bold; margin: 0;
+}
+.settings-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px;
+}
+.settings-row label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.settings-row input[type="radio"], .settings-row input[type="checkbox"] {
+  margin: 0; cursor: pointer;
+}
+.rand-row label { width: 110px; flex: 0 0 auto; }
+.rand-weight { width: 44px; font-size: 11px; padding: 1px 3px; background: #111; color: #ddd;
+               border: 1px solid #333; border-radius: 3px; }
+.rand-weight:disabled { opacity: .35; }
+.rand-pct { width: 34px; text-align: left; color: #888; font-size: 10px; }
+.settings-radios {
+  display: flex; flex-wrap: wrap; gap: 8px;
+}
+.settings-sub {
+  margin-left: 18px; padding-left: 10px;
+  border-left: 1px solid #333;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.settings-sub.disabled { opacity: 0.4; pointer-events: none; }
+.settings-sub > .sub-label {
+  font-size: 10px; color: #888; text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.settings-color-picker {
+  width: 28px; height: 18px; padding: 0; border: 1px solid #444;
+  background: transparent; cursor: pointer;
+}
+.settings-select {
+  font-family: Arial, sans-serif; font-size: 11px; color: #ccc;
+  background: #2a2a2a; border: 1px solid #444; border-radius: 3px;
+  padding: 2px 6px; cursor: pointer; outline: none;
+}
+
+</style>
+<style>
+/* Popout: render the settings panel as the whole page (not a modal overlay).
+   Override the copied full-height/overflow-hidden rules so the window scrolls. */
+html, body { margin: 0; background: #1a1a1a; height: auto; min-height: 100%; width: auto;
+             overflow-x: hidden; overflow-y: auto; display: block; }
+#settings-overlay { position: static; inset: auto; background: transparent; display: block; z-index: auto; }
+#settings-overlay.hidden { display: block; }
+/* Let the panel fill the window and grow with its content (window scrolls). */
+.settings-modal { width: 100%; max-width: 100%; max-height: none; overflow: visible;
+                  border: none; border-radius: 0; box-shadow: none; }
+</style>
+</head>
+<body>
+<div id="settings-overlay" class="hidden">
+  <div class="settings-modal">
+    <div class="settings-header">
+      <h3>Broadcast Settings</h3>
+      <button class="settings-close" onclick="window.close()">×</button>
+    </div>
+    <div class="settings-body">
+      <div class="settings-section">
+        <h4>Main Background</h4>
+        <div class="settings-radios" id="bg-radios">
+          <label><input type="radio" name="bg" value="black"> Black</label>
+          <label><input type="radio" name="bg" value="grey"> Grey</label>
+          <label><input type="radio" name="bg" value="white"> White</label>
+          <label><input type="radio" name="bg" value="transparent"> Transparent</label>
+          <label><input type="radio" name="bg" value="image"> Image</label>
+        </div>
+        <div class="settings-row">
+          <label class="bsettings-btn" style="cursor:pointer; margin:0;">
+            Choose Image...
+            <input type="file" accept="image/*" id="opt-bg-image-file" style="display:none;">
+          </label>
+          <button type="button" class="bsettings-btn" id="opt-bg-image-clear" style="margin:0;">Clear</button>
+          <span class="sub-label" id="bg-image-status" style="font-size:10px;color:#888;">No image</span>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h4>Item Background</h4>
+        <div class="settings-row">
+          <label><input type="checkbox" id="opt-fill-enabled"> Item Fill</label>
+        </div>
+        <div class="settings-sub" id="fill-sub">
+          <div class="sub-label">Fill Color (top-right)</div>
+          <div class="settings-radios">
+            <label><input type="radio" name="fill-color" value="green"> Green</label>
+            <label><input type="radio" name="fill-color" value="blue"> Blue</label>
+            <label><input type="radio" name="fill-color" value="purple"> Purple</label>
+            <label><input type="radio" name="fill-color" value="custom"> Custom</label>
+            <input type="color" class="settings-color-picker" id="opt-fill-custom" value="#00aa00">
+          </div>
+          <div class="sub-label">Second Color (bottom-left)</div>
+          <div class="settings-radios">
+            <label><input type="radio" name="fill-color-2" value="green"> Green</label>
+            <label><input type="radio" name="fill-color-2" value="blue"> Blue</label>
+            <label><input type="radio" name="fill-color-2" value="purple"> Purple</label>
+            <label><input type="radio" name="fill-color-2" value="custom"> Custom</label>
+            <input type="color" class="settings-color-picker" id="opt-fill-custom-2" value="#b675ff">
+          </div>
+          <div class="sub-label">Fill Effect</div>
+          <div class="settings-radios">
+            <label><input type="radio" name="fill-effect" value="none"> No Effects</label>
+            <label><input type="radio" name="fill-effect" value="falling"> Falling</label>
+            <label><input type="radio" name="fill-effect" value="starburst"> Starburst</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h4>View Style</h4>
+        <div class="settings-radios">
+          <label><input type="radio" name="view-style" value="modern"> Modern</label>
+          <label><input type="radio" name="view-style" value="classic"> Classic</label>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h4>Item Animation</h4>
+        <div class="settings-row">
+          <label><input type="checkbox" id="opt-item-anim"> Item Animation</label>
+        </div>
+        <div class="settings-sub" id="item-anim-sub">
+          <div class="settings-row">
+            <label><input type="checkbox" id="opt-anim-label"> Show Item Name</label>
+          </div>
+          <div class="settings-row">
+            <label><input type="checkbox" id="opt-map-anim"> Map Animation</label>
+          </div>
+          <div class="settings-row">
+            <label><input type="checkbox" id="opt-compass-anim"> Compass Animation</label>
+          </div>
+          <div class="settings-row">
+            <label><input type="checkbox" id="opt-bigkey-anim"> Big Key Animation</label>
+          </div>
+          <div class="sub-label">Animation Background</div>
+          <div class="settings-radios">
+            <label><input type="radio" name="anim-bg" value="none"> None</label>
+            <label><input type="radio" name="anim-bg" value="stars"> Falling Stars</label>
+            <label><input type="radio" name="anim-bg" value="starburst"> Starburst</label>
+            <label><input type="radio" name="anim-bg" value="matrix"> Matrix</label>
+            <label><input type="radio" name="anim-bg" value="triforce"> Triforce</label>
+            <label><input type="radio" name="anim-bg" value="lightning"> Lightning</label>
+            <label><input type="radio" name="anim-bg" value="image"> Image</label>
+            <label><input type="radio" name="anim-bg" value="random"> Random</label>
+          </div>
+          <div class="settings-sub disabled" id="anim-random-sub">
+            <div class="sub-label">Random Pool</div>
+            <div class="settings-row rand-row"><label><input type="checkbox" id="opt-rand-stars"> Falling Stars</label><input type="number" class="rand-weight" id="opt-randw-stars" min="0" max="10" step="1"><span class="rand-pct" id="opt-randp-stars"></span></div>
+            <div class="settings-row rand-row"><label><input type="checkbox" id="opt-rand-starburst"> Starburst</label><input type="number" class="rand-weight" id="opt-randw-starburst" min="0" max="10" step="1"><span class="rand-pct" id="opt-randp-starburst"></span></div>
+            <div class="settings-row rand-row"><label><input type="checkbox" id="opt-rand-matrix"> Matrix</label><input type="number" class="rand-weight" id="opt-randw-matrix" min="0" max="10" step="1"><span class="rand-pct" id="opt-randp-matrix"></span></div>
+            <div class="settings-row rand-row"><label><input type="checkbox" id="opt-rand-triforce"> Triforce</label><input type="number" class="rand-weight" id="opt-randw-triforce" min="0" max="10" step="1"><span class="rand-pct" id="opt-randp-triforce"></span></div>
+            <div class="settings-row rand-row"><label><input type="checkbox" id="opt-rand-lightning"> Lightning</label><input type="number" class="rand-weight" id="opt-randw-lightning" min="0" max="10" step="1"><span class="rand-pct" id="opt-randp-lightning"></span></div>
+            <div class="settings-row rand-row"><label><input type="checkbox" id="opt-rand-image"> Image</label><input type="number" class="rand-weight" id="opt-randw-image" min="0" max="10" step="1"><span class="rand-pct" id="opt-randp-image"></span></div>
+          </div>
+          <div class="settings-sub disabled" id="anim-image-sub">
+            <div class="settings-row">
+              <label class="bsettings-btn" style="cursor:pointer;margin:0;">
+                Browse...
+                <input type="file" accept="image/*" id="opt-anim-bg-image-file" style="display:none;">
+              </label>
+              <span id="anim-bg-image-status" style="font-size:10px;color:#888;">triforce.jpg (default)</span>
+            </div>
+            <div class="settings-row">
+              <button type="button" class="bsettings-btn" id="opt-anim-bg-image-clear" style="margin:0;">Clear</button>
+            </div>
+          </div>
+          <div class="settings-sub" id="anim-colors-sub">
+            <div class="sub-label" id="anim-colors-label">Color Theme</div>
+            <div class="settings-radios">
+              <label><input type="radio" name="anim-color-preset" value="blue"> Blue</label>
+              <label><input type="radio" name="anim-color-preset" value="green"> Green</label>
+              <label><input type="radio" name="anim-color-preset" value="purple"> Purple</label>
+              <label><input type="radio" name="anim-color-preset" value="yellow"> Yellow</label>
+              <label><input type="radio" name="anim-color-preset" value="custom"> Custom</label>
+            </div>
+            <div class="settings-sub" id="anim-custom-colors-sub">
+              <div class="sub-label">Color A</div>
+              <div class="settings-row">
+                <input type="color" class="settings-color-picker" id="opt-anim-color-a" value="#3498db">
+                <span id="anim-color-a-hex" style="font-size:10px;color:#888;">#3498db</span>
+              </div>
+              <div class="sub-label">Color B (lighter)</div>
+              <div class="settings-row">
+                <input type="color" class="settings-color-picker" id="opt-anim-color-b" value="#88ccff">
+                <span id="anim-color-b-hex" style="font-size:10px;color:#888;">#88ccff</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Go Mode Spark Lines hidden (Max build only) -->
+
+      <div class="settings-section">
+        <h4>Dungeon Background</h4>
+        <div class="settings-row">
+          <label><input type="checkbox" id="opt-dungeon-fill"> Dungeon Fill</label>
+          <label><input type="checkbox" id="opt-dungeon-box"> Dungeon Box</label>
+          <label id="opt-here-dot-lbl"><input type="checkbox" id="opt-here-dot"> You Are Here Dot</label>
+        </div>
+        <div class="sub-label">All Chests Collected</div>
+        <div class="settings-radios">
+          <label><input type="radio" name="chests-color" value="blue"> Blue</label>
+          <label><input type="radio" name="chests-color" value="green"> Green</label>
+          <label><input type="radio" name="chests-color" value="purple"> Purple</label>
+          <label><input type="radio" name="chests-color" value="yellow"> Yellow</label>
+          <label><input type="radio" name="chests-color" value="custom"> Custom</label>
+          <input type="color" class="settings-color-picker" id="opt-chests-custom" value="#5a8eff">
+        </div>
+        <div class="sub-label">Dungeon Complete</div>
+        <div class="settings-radios">
+          <label><input type="radio" name="complete-color" value="green"> Green</label>
+          <label><input type="radio" name="complete-color" value="blue"> Blue</label>
+          <label><input type="radio" name="complete-color" value="purple"> Purple</label>
+          <label><input type="radio" name="complete-color" value="yellow"> Yellow</label>
+          <label><input type="radio" name="complete-color" value="custom"> Custom</label>
+          <input type="color" class="settings-color-picker" id="opt-complete-custom" value="#4dff88">
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h4>Dungeon Items</h4>
+        <div class="settings-radios">
+          <label><input type="checkbox" id="opt-show-map">        Map</label>
+          <label><input type="checkbox" id="opt-show-compass">    Compass</label>
+          <label><input type="checkbox" id="opt-show-smallkeys">  Small Keys</label>
+          <label><input type="checkbox" id="opt-show-bigkey">     Big Key</label>
+          <label><input type="checkbox" id="opt-show-chests">     Chests</label>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<script src="js/bcast-settings-core.js"></script>
+<script>
+// Settings popout: reuses the broadcast settings UI + handlers, but has no
+// tracker to render. The view-apply functions are replaced with notify-stubs so
+// every change pings the live broadcast view to re-apply (see applyAllSettings).
+var RACE_MODE = false;
+
+// In the popout, every settings save should also ping the live view to
+// re-apply — this covers settings that are read live at render/animation time
+// (animation background, colors, item-anim toggles) whose handlers only call
+// saveSettings() without a view-apply hook.
+var _coreSaveSettings = saveSettings;
+saveSettings = function() { _coreSaveSettings(); notifyBcastSettingsChanged(); };
+
+function saveBgImage(dataUrl) {
+  SETTINGS.bgImage = dataUrl || '';
+  try {
+    if (dataUrl) localStorage.setItem('alttp-broadcast-bg-image', dataUrl);
+    else         localStorage.removeItem('alttp-broadcast-bg-image');
+    return true;
+  } catch (e) {
+    alert('Could not store background image — it may be too large. Try a smaller file.');
+    SETTINGS.bgImage = '';
+    return false;
+  }
+}
+
+function saveAnimBgImage(dataUrl) {
+  SETTINGS.animBgImage = dataUrl || '';
+  try {
+    if (dataUrl) localStorage.setItem('alttp-broadcast-anim-bg-image', dataUrl);
+    else         localStorage.removeItem('alttp-broadcast-anim-bg-image');
+    return true;
+  } catch(e) {
+    alert('Could not store animation background image — it may be too large. Try a smaller file.');
+    SETTINGS.animBgImage = '';
+    return false;
+  }
+}
+function updateAnimBgImageStatus() {
+  var el = document.getElementById('anim-bg-image-status');
+  if (el) el.textContent = SETTINGS.animBgImage ? 'Custom image loaded' : 'items/triforce.jpg (default)';
+}
+
+function applyFillVariable() {
+  var color = SETTINGS.fillColor === 'custom' ? SETTINGS.fillCustom : (FILL_COLORS[SETTINGS.fillColor] || FILL_COLORS.green);
+  var color2 = SETTINGS.fillColor2 === 'custom' ? SETTINGS.fillCustom2 : (FILL_COLORS_DARK[SETTINGS.fillColor2] || FILL_COLORS_DARK.purple);
+  document.documentElement.style.setProperty('--item-fill-color', color);
+  document.documentElement.style.setProperty('--item-fill-color2', color2);
+}
+
+// Re-evaluates the small-key row's display state for one dungeon. Combines the
+// per-dungeon "this dungeon has no keys" check (which hides via visibility so
+// rows stay aligned) with the user-level "Small Keys" toggle (which hides via
+// display so the slot collapses entirely).
+function applyKeyRowDisplay(d) {
+  if (!d || !d.keyRow) return;
+  if (!SETTINGS.showSmallKeys) {
+    d.keyRow.style.display = 'none';
+  } else {
+    d.keyRow.style.display = '';
+    d.keyRow.style.visibility = ((d._maxSmallKeys || 0) > 0) ? 'visible' : 'hidden';
+  }
+}
+
+function applyDungeonVisibility() {
+  Object.keys(dngEls).forEach(function(key) {
+    var d = dngEls[key]; if (!d) return;
+    d.map.style.display     = SETTINGS.showMap     ? '' : 'none';
+    d.compass.style.display = SETTINGS.showCompass ? '' : 'none';
+    d.bigkey.style.display  = SETTINGS.showBigKey  ? '' : 'none';
+    // Hide the icons row entirely if both map AND compass are hidden
+    d.iconsRow.style.display = (SETTINGS.showMap || SETTINGS.showCompass) ? '' : 'none';
+    d.chestRow.style.display = SETTINGS.showChests ? '' : 'none';
+    applyKeyRowDisplay(d);
+  });
+}
+
+// Toggle the default container (background + border) on every dungeon slot.
+// When box is disabled, also strip all completion-state classes so nothing
+// renders a visible box even if fill/prize state is technically met.
+function applyDungeonBox() {
+  Object.keys(dngEls).forEach(function(key) {
+    var d = dngEls[key]; if (!d) return;
+    d.slot.classList.toggle('no-box', !SETTINGS.dungeonBoxEnabled);
+    if (!SETTINGS.dungeonBoxEnabled) {
+      d.slot.classList.remove('prize-done', 'chests-done', 'prize-only');
+    }
+  });
+  // If box was just re-enabled, re-derive completion state from current data
+  if (SETTINGS.dungeonBoxEnabled) applyDungeonFill();
+}
+
+// Re-evaluate the chests-done / prize-done classes from the current DOM state.
+// Called when the user toggles "Dungeon Fill" so the visual updates without
+// waiting for the next snap.
+function applyDungeonFill() {
+  Object.keys(dngEls).forEach(function(key) {
+    var d = dngEls[key]; if (!d) return;
+    var parts = (d.chestVal.textContent || '0/0').split('/');
+    var c = parseInt(parts[0]) || 0;
+    var m = parseInt(parts[1]) || 0;
+    var allChests = c >= m && m > 0;
+    var prizeDone = (d.prize.src || '').indexOf('1.png') !== -1;
+    var fillOn   = SETTINGS.dungeonFillEnabled && SETTINGS.dungeonBoxEnabled;
+    d.slot.classList.toggle('prize-done',  fillOn && allChests && prizeDone);
+    d.slot.classList.toggle('chests-done', fillOn && allChests && !prizeDone);
+    if (!SETTINGS.dungeonBoxEnabled) d.slot.classList.remove('prize-only');
+  });
+}
+
+function applyDungeonColors() {
+  var chests   = SETTINGS.chestsColor   === 'custom' ? SETTINGS.chestsCustom   : (DUNGEON_PRESETS[SETTINGS.chestsColor]   || DUNGEON_PRESETS.blue);
+  var complete = SETTINGS.completeColor === 'custom' ? SETTINGS.completeCustom : (DUNGEON_PRESETS[SETTINGS.completeColor] || DUNGEON_PRESETS.green);
+  document.documentElement.style.setProperty('--chests-color',   chests);
+  document.documentElement.style.setProperty('--complete-color', complete);
+}
+
+function applyBg(bg) {
+  // If "image" was chosen but no image is stored, prompt to upload first.
+  if (bg === 'image' && !SETTINGS.bgImage) {
+    var picker = document.getElementById('opt-bg-image-file');
+    if (picker) picker.click();
+    // Re-select the previous bg in the radios
+    document.querySelectorAll('input[name="bg"]').forEach(function(r){ r.checked = (r.value === SETTINGS.bg); });
+    return;
+  }
+
+  SETTINGS.bg = bg;
+  saveSettings();
+
+  document.documentElement.setAttribute('data-bg', bg);
+  document.body.setAttribute('data-bg', bg);
+
+  if (bg === 'transparent') {
+    document.documentElement.style.background = 'transparent';
+    document.body.style.background = 'transparent';
+    document.body.style.backgroundColor = 'transparent';
+    document.body.style.backgroundImage = 'none';
+  } else if (bg === 'image') {
+    document.documentElement.style.setProperty('--bg-image', SETTINGS.bgImage ? 'url("' + SETTINGS.bgImage + '")' : 'none');
+    // Inline styles cleared so the [data-bg=image] rule can take over
+    document.body.style.background = '';
+    document.documentElement.style.background = '';
+    document.body.style.backgroundColor = '';
+    document.body.style.backgroundImage = '';
+  } else {
+    var bgMap = { black:'#000000', grey:'#333333', white:'#ffffff' };
+    var color = bgMap[bg] || '#000000';
+    document.body.style.background = color;
+    document.documentElement.style.background = color;
+    document.body.style.backgroundColor = color;
+    document.body.style.backgroundImage = 'none';
+  }
+
+  if (window.electronAPI && window.electronAPI.setBroadcastBg) window.electronAPI.setBroadcastBg(bg);
+}
+
+function updateBgImageStatus() {
+  var lbl = document.getElementById('bg-image-status');
+  if (lbl) lbl.textContent = SETTINGS.bgImage ? 'Image loaded' : 'No image';
+}
+
+// ── Settings popup ───────────────────────────────────────────────────────
+function openSettings() {
+  // Sync UI from SETTINGS
+  document.querySelectorAll('input[name="bg"]').forEach(function(r) { r.checked = (r.value === SETTINGS.bg); });
+  document.getElementById('opt-fill-enabled').checked = SETTINGS.fillEnabled;
+  document.querySelectorAll('input[name="fill-color"]').forEach(function(r) { r.checked = (r.value === SETTINGS.fillColor); });
+  document.querySelectorAll('input[name="fill-color-2"]').forEach(function(r) { r.checked = (r.value === SETTINGS.fillColor2); });
+  document.querySelectorAll('input[name="fill-effect"]').forEach(function(r) { r.checked = (r.value === SETTINGS.fillEffect); });
+  document.getElementById('opt-fill-custom').value = SETTINGS.fillCustom;
+  document.getElementById('opt-fill-custom-2').value = SETTINGS.fillCustom2;
+  document.querySelectorAll('input[name="chests-color"]').forEach(function(r) { r.checked = (r.value === SETTINGS.chestsColor); });
+  document.getElementById('opt-chests-custom').value = SETTINGS.chestsCustom;
+  document.querySelectorAll('input[name="complete-color"]').forEach(function(r) { r.checked = (r.value === SETTINGS.completeColor); });
+  document.getElementById('opt-complete-custom').value = SETTINGS.completeCustom;
+  document.getElementById('opt-show-map').checked       = SETTINGS.showMap;
+  document.getElementById('opt-show-compass').checked   = SETTINGS.showCompass;
+  document.getElementById('opt-show-smallkeys').checked = SETTINGS.showSmallKeys;
+  document.getElementById('opt-show-bigkey').checked    = SETTINGS.showBigKey;
+  document.getElementById('opt-show-chests').checked    = SETTINGS.showChests;
+  document.getElementById('opt-dungeon-fill').checked   = SETTINGS.dungeonFillEnabled;
+  document.getElementById('opt-dungeon-box').checked    = SETTINGS.dungeonBoxEnabled;
+  document.getElementById('opt-here-dot').checked       = SETTINGS.hereDot && !RACE_MODE;
+  document.getElementById('opt-here-dot').disabled      = RACE_MODE;
+  document.getElementById('opt-here-dot-lbl').title     = RACE_MODE ? 'Disabled in Race Mode' : '';
+  document.querySelectorAll('input[name="view-style"]').forEach(function(r) { r.checked = (r.value === SETTINGS.viewStyle); });
+  document.getElementById('opt-item-anim').checked      = SETTINGS.itemAnimEnabled;
+  document.getElementById('opt-anim-label').checked     = SETTINGS.animShowLabel;
+  document.getElementById('opt-map-anim').checked       = SETTINGS.mapAnimEnabled;
+  document.getElementById('opt-compass-anim').checked   = SETTINGS.compassAnimEnabled;
+  document.getElementById('opt-bigkey-anim').checked    = SETTINGS.bigKeyAnimEnabled;
+  // (Go Mode's sound moved to Item Sounds — its controls are gone from here.)
+  document.querySelectorAll('input[name="anim-bg"]').forEach(function(r) { r.checked = (r.value === SETTINGS.animBg); });
+  var _rp2 = SETTINGS.animRandomPool || {};
+  [['opt-rand-stars','stars'],['opt-rand-starburst','starburst'],['opt-rand-matrix','matrix'],['opt-rand-triforce','triforce'],['opt-rand-lightning','lightning'],['opt-rand-image','image']].forEach(function(pair){
+    var el = document.getElementById(pair[0]); if (el) el.checked = !!_rp2[pair[1]];
+  });
+  // First time with weights: start from an even split of whatever is checked.
+  var _rwSaved = null;
+  try { _rwSaved = localStorage.getItem('alttp-broadcast-anim-random-weights'); } catch (e) {}
+  if (_rwSaved === null) resetRandomWeights(); else syncRandomWeights();
+  if (ANIM_COLOR_KEYS.indexOf(SETTINGS.animBg) !== -1) applyAnimColorsFor(SETTINGS.animBg);
+  refreshAnimColorUI();
+  syncAnimSubEnabled();
+  syncGomodeSoundSub();
+  // Spark lines disabled in this build — no UI elements to sync
+  syncFillSubEnabled();
+  updateBgImageStatus();
+  updateAnimBgImageStatus();
+  document.getElementById('settings-overlay').classList.remove('hidden');
+}
+function closeSettings() {
+  document.getElementById('settings-overlay').classList.add('hidden');
+}
+function syncFillSubEnabled() {
+  var sub = document.getElementById('fill-sub');
+  if (SETTINGS.fillEnabled) sub.classList.remove('disabled');
+  else                       sub.classList.add('disabled');
+}
+function syncGomodeSoundSub() {
+  var sub = document.getElementById('gomode-sound-sub');
+  if (!sub) return;
+  if (SETTINGS.gomodeSoundEnabled) sub.classList.remove('disabled');
+  else                              sub.classList.add('disabled');
+}
+function syncGomodeSparksSubEnabled() {
+  var sub = document.getElementById('gomode-sparks-sub');
+  if (sub) {
+    if (SETTINGS.gomodeSparksEnabled) sub.classList.remove('disabled');
+    else                               sub.classList.add('disabled');
+  }
+}
+function buildSparkSwatches() {
+  var container = document.getElementById('spark-color-swatches');
+  if (!container) return;
+  container.innerHTML = '';
+  var colors = SETTINGS.sparkColors;
+  var MAX_COLORS = 6;
+  for (var i = 0; i < MAX_COLORS; i++) {
+    (function(idx) {
+      var wrap = document.createElement('div');
+      wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:2px;';
+      var picker = document.createElement('input');
+      picker.type = 'color';
+      picker.className = 'settings-color-picker';
+      picker.value = colors[idx] || '#333333';
+      picker.style.opacity = colors[idx] ? '1' : '0.35';
+      picker.addEventListener('input', function(e) {
+        SETTINGS.sparkColors[idx] = e.target.value;
+        picker.style.opacity = '1';
+        saveSettings();
+      });
+      var lbl = document.createElement('span');
+      lbl.style.cssText = 'font-size:9px;color:#666;';
+      lbl.textContent = idx + 1;
+      wrap.appendChild(picker);
+      wrap.appendChild(lbl);
+      container.appendChild(wrap);
+    })(i);
+  }
+}
+function updateGomodeSoundStatus() {
+  var el = document.getElementById('gomode-sound-status');
+  if (!el) return;
+  if (el) el.textContent = SETTINGS.gomodeSoundData ? 'File loaded' : 'No file';
+}
+function playGomodeSound() {
+  if (RACE_MODE) return; // Race Mode: no Go Mode sound.
+  if (!SETTINGS.gomodeSoundEnabled || !SETTINGS.gomodeSoundData) return;
+  try {
+    var audio = new Audio(SETTINGS.gomodeSoundData);
+    audio.play();
+  } catch(e) {}
+}
+
+// Preset color pairs: [colorA, colorB]
+var ANIM_COLOR_PRESETS = {
+  blue:   ['#3498db', '#88ccff'],
+  green:  ['#2ecc71', '#88ffbb'],
+  purple: ['#b675ff', '#ddb8ff'],
+  yellow: ['#ffcc44', '#fff3c4']
+};
+
+function applyAnimColorPreset(preset) {
+  if (preset === 'custom') return; // leave pickers as-is
+  var pair = ANIM_COLOR_PRESETS[preset];
+  if (!pair) return;
+  SETTINGS.animColorA = pair[0];
+  SETTINGS.animColorB = pair[1];
+  document.getElementById('opt-anim-color-a').value = pair[0];
+  document.getElementById('anim-color-a-hex').textContent = pair[0];
+  document.getElementById('opt-anim-color-b').value = pair[1];
+  document.getElementById('anim-color-b-hex').textContent = pair[1];
+}
+
+// Push the live colour values into the preset radios and the pickers.
+function refreshAnimColorUI() {
+  document.querySelectorAll('input[name="anim-color-preset"]').forEach(function(r) { r.checked = (r.value === SETTINGS.animColorPreset); });
+  document.getElementById('opt-anim-color-a').value = SETTINGS.animColorA;
+  document.getElementById('anim-color-a-hex').textContent = SETTINGS.animColorA;
+  document.getElementById('opt-anim-color-b').value = SETTINGS.animColorB;
+  document.getElementById('anim-color-b-hex').textContent = SETTINGS.animColorB;
+}
+
+var ANIM_BG_LABELS = {
+  stars: 'Falling Stars', starburst: 'Starburst', matrix: 'Matrix',
+  triforce: 'Triforce', lightning: 'Lightning'
+};
+
+// ── Random pool weights ─────────────────────────────────────────────────────
+// Each checked background gets a weight box, 0–10. Checking or unchecking one
+// sets every checked box to 1, an even split; the player can then change any of
+// them. The picker uses weight / total, so the grey figure beside each box is
+// the chance it actually gets (Chris, Oct 2026).
+var RAND_KEYS = ['stars', 'starburst', 'matrix', 'triforce', 'lightning', 'image'];
+function resetRandomWeights() {
+  var pool = SETTINGS.animRandomPool || {};
+  var on = RAND_KEYS.filter(function (k) { return pool[k]; });
+  var w = {};
+  RAND_KEYS.forEach(function (k, i) { w[k] = 0; });
+  on.forEach(function (k) { w[k] = 1; });
+  SETTINGS.animRandomWeights = w;
+  syncRandomWeights();
+}
+function syncRandomWeights() {
+  var pool = SETTINGS.animRandomPool || {}, w = SETTINGS.animRandomWeights || {};
+  var total = 0;
+  RAND_KEYS.forEach(function (k) {
+    var n = Number(w[k]); if (!isFinite(n) || n < 0) n = 1;
+    w[k] = Math.min(10, n);
+    if (pool[k]) total += w[k];
+  });
+  RAND_KEYS.forEach(function (k) {
+    var box = document.getElementById('opt-randw-' + k), pct = document.getElementById('opt-randp-' + k);
+    var n = w[k];
+    if (box) { box.value = pool[k] ? n : ''; box.disabled = !pool[k]; }
+    if (pct) pct.textContent = (pool[k] && total > 0) ? Math.round(n / total * 100) + '%' : '';
+  });
+}
+
+function syncAnimSubEnabled() {
+  var sub = document.getElementById('item-anim-sub');
+  if (SETTINGS.itemAnimEnabled) sub.classList.remove('disabled');
+  else                           sub.classList.add('disabled');
+
+  var colorsSub = document.getElementById('anim-colors-sub');
+  // Each animation owns its own theme, so the colour block only applies when a
+  // specific animation is selected — not for None, Image or Random.
+  var showColors = SETTINGS.itemAnimEnabled && ANIM_COLOR_KEYS.indexOf(SETTINGS.animBg) !== -1;
+  if (showColors) colorsSub.classList.remove('disabled');
+  else             colorsSub.classList.add('disabled');
+  var colorsLabel = document.getElementById('anim-colors-label');
+  if (colorsLabel) {
+    colorsLabel.textContent = showColors
+      ? 'Color Theme \u2014 ' + (ANIM_BG_LABELS[SETTINGS.animBg] || SETTINGS.animBg)
+      : 'Color Theme (per animation)';
+  }
+
+  var customSub = document.getElementById('anim-custom-colors-sub');
+  var showCustom = showColors && SETTINGS.animColorPreset === 'custom';
+  if (showCustom) customSub.classList.remove('disabled');
+  else             customSub.classList.add('disabled');
+
+  var randomSub = document.getElementById('anim-random-sub');
+  if (randomSub) {
+    if (SETTINGS.itemAnimEnabled && SETTINGS.animBg === 'random') randomSub.classList.remove('disabled');
+    else                                                          randomSub.classList.add('disabled');
+  }
+
+  var imageSub = document.getElementById('anim-image-sub');
+  if (imageSub) {
+    var poolImg = SETTINGS.animRandomPool && SETTINGS.animRandomPool.image;
+    var showImage = SETTINGS.itemAnimEnabled && (SETTINGS.animBg === 'image' || (SETTINGS.animBg === 'random' && poolImg));
+    if (showImage) imageSub.classList.remove('disabled');
+    else            imageSub.classList.add('disabled');
+  }
+}
+
+function wireSettingsHandlers() {
+  document.querySelectorAll('input[name="bg"]').forEach(function(r) {
+    r.addEventListener('change', function() { if (r.checked) applyBg(r.value); });
+  });
+  document.getElementById('opt-fill-enabled').addEventListener('change', function(e) {
+    SETTINGS.fillEnabled = e.target.checked;
+    saveSettings(); syncFillSubEnabled(); refreshAllFills();
+  });
+  document.querySelectorAll('input[name="fill-color"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      if (!r.checked) return;
+      SETTINGS.fillColor = r.value;
+      saveSettings(); applyFillVariable();
+    });
+  });
+  document.getElementById('opt-fill-custom').addEventListener('input', function(e) {
+    SETTINGS.fillCustom = e.target.value;
+    if (SETTINGS.fillColor === 'custom') applyFillVariable();
+    saveSettings();
+  });
+  document.querySelectorAll('input[name="fill-color-2"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      if (!r.checked) return;
+      SETTINGS.fillColor2 = r.value;
+      saveSettings(); applyFillVariable();
+    });
+  });
+  document.getElementById('opt-fill-custom-2').addEventListener('input', function(e) {
+    SETTINGS.fillCustom2 = e.target.value;
+    if (SETTINGS.fillColor2 === 'custom') applyFillVariable();
+    saveSettings();
+  });
+  document.querySelectorAll('input[name="fill-effect"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      if (!r.checked) return;
+      SETTINGS.fillEffect = r.value;
+      saveSettings();
+    });
+  });
+
+  // Dungeon Background — All Chests Collected
+  document.querySelectorAll('input[name="chests-color"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      if (!r.checked) return;
+      SETTINGS.chestsColor = r.value;
+      saveSettings(); applyDungeonColors();
+    });
+  });
+  document.getElementById('opt-chests-custom').addEventListener('input', function(e) {
+    SETTINGS.chestsCustom = e.target.value;
+    if (SETTINGS.chestsColor === 'custom') applyDungeonColors();
+    saveSettings();
+  });
+  // Dungeon Background — Dungeon Complete
+  document.querySelectorAll('input[name="complete-color"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      if (!r.checked) return;
+      SETTINGS.completeColor = r.value;
+      saveSettings(); applyDungeonColors();
+    });
+  });
+  document.getElementById('opt-complete-custom').addEventListener('input', function(e) {
+    SETTINGS.completeCustom = e.target.value;
+    if (SETTINGS.completeColor === 'custom') applyDungeonColors();
+    saveSettings();
+  });
+
+  // Dungeon Items — visibility checkboxes
+  [
+    ['opt-show-map',       'showMap'],
+    ['opt-show-compass',   'showCompass'],
+    ['opt-show-smallkeys', 'showSmallKeys'],
+    ['opt-show-bigkey',    'showBigKey'],
+    ['opt-show-chests',    'showChests']
+  ].forEach(function(pair) {
+    document.getElementById(pair[0]).addEventListener('change', function(e) {
+      SETTINGS[pair[1]] = e.target.checked;
+      saveSettings();
+      applyDungeonVisibility();
+    });
+  });
+
+  // Dungeon Fill master toggle
+  document.getElementById('opt-dungeon-fill').addEventListener('change', function(e) {
+    SETTINGS.dungeonFillEnabled = e.target.checked;
+    saveSettings();
+    applyDungeonFill();
+  });
+
+  // Dungeon Box master toggle
+  document.getElementById('opt-dungeon-box').addEventListener('change', function(e) {
+    SETTINGS.dungeonBoxEnabled = e.target.checked;
+    saveSettings();
+    applyDungeonBox();
+  });
+
+  document.getElementById('opt-here-dot').addEventListener('change', function(e) {
+    SETTINGS.hereDot = e.target.checked;
+    saveSettings();
+  });
+
+  // Go Mode Sound: set per profile in the Item Sounds window now.
+  // Go Mode Sparklines disabled in this build — no event listeners needed
+  var SPARK_PRESETS = {
+    green:  ['#22cc55','#66ff88','#aaffbb','#448855','#225533','#88aa99'],
+    blue:   ['#4488ff','#88bbff','#aaccff','#667799','#334466','#99aacc'],
+    purple: ['#aa44ff','#cc88ff','#ddaaff','#774499','#442266','#aa99cc']
+  };
+  ['green','blue','purple'].forEach(function(preset) {
+    var btn = document.getElementById('spark-preset-' + preset);
+    if (!btn) return;
+    btn.addEventListener('click', function() {
+      SETTINGS.sparkColors = SPARK_PRESETS[preset].slice();
+      saveSettings();
+      buildSparkSwatches();
+    });
+  });
+  // Item Animation toggle
+  document.getElementById('opt-item-anim').addEventListener('change', function(e) {
+    SETTINGS.itemAnimEnabled = e.target.checked;
+    saveSettings(); syncAnimSubEnabled();
+  });
+  // Show Item Name toggle
+  document.getElementById('opt-anim-label').addEventListener('change', function(e) {
+    SETTINGS.animShowLabel = e.target.checked;
+    saveSettings();
+  });
+  // Map Animation toggle
+  document.getElementById('opt-map-anim').addEventListener('change', function(e) {
+    SETTINGS.mapAnimEnabled = e.target.checked;
+    saveSettings();
+  });
+  // Compass Animation toggle
+  document.getElementById('opt-compass-anim').addEventListener('change', function(e) {
+    SETTINGS.compassAnimEnabled = e.target.checked;
+    saveSettings();
+  });
+  // Big Key Animation toggle
+  document.getElementById('opt-bigkey-anim').addEventListener('change', function(e) {
+    SETTINGS.bigKeyAnimEnabled = e.target.checked;
+    saveSettings();
+  });
+  // Animation background
+  document.querySelectorAll('input[name="anim-bg"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      if (!r.checked) return;
+      SETTINGS.animBg = r.value;
+      // Swap the pickers over to the newly selected animation's own theme.
+      if (ANIM_COLOR_KEYS.indexOf(r.value) !== -1) { applyAnimColorsFor(r.value); refreshAnimColorUI(); }
+      saveSettings(); syncAnimSubEnabled();
+    });
+  });
+  // Random background pool checkboxes
+  [['opt-rand-stars','stars'],['opt-rand-starburst','starburst'],['opt-rand-matrix','matrix'],['opt-rand-triforce','triforce'],['opt-rand-lightning','lightning'],['opt-rand-image','image']].forEach(function(pair){
+    var el = document.getElementById(pair[0]);
+    if (el) el.addEventListener('change', function(e){
+      if (!SETTINGS.animRandomPool) SETTINGS.animRandomPool = {};
+      SETTINGS.animRandomPool[pair[1]] = e.target.checked;
+      resetRandomWeights();
+      saveSettings(); syncAnimSubEnabled();
+    });
+  });
+  // Weight boxes: whole percentages, each checked entry's share of the total.
+  RAND_KEYS.forEach(function (k) {
+    var el = document.getElementById('opt-randw-' + k);
+    if (!el) return;
+    // Arrows only (Chris, Oct 2026): the spinner buttons and the Up/Down keys
+    // change the value; typing, pasting and dropping text are refused.
+    el.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Tab') return;
+      e.preventDefault();
+    });
+    el.addEventListener('paste', function (e) { e.preventDefault(); });
+    el.addEventListener('drop',  function (e) { e.preventDefault(); });
+    el.addEventListener('input', function () {
+      var n = Math.max(0, Math.min(10, Math.round(Number(el.value) || 0)));
+      if (!SETTINGS.animRandomWeights) SETTINGS.animRandomWeights = {};
+      SETTINGS.animRandomWeights[k] = n;
+      syncRandomWeights();
+      saveSettings();
+    });
+  });
+  // Color preset radios
+  document.querySelectorAll('input[name="anim-color-preset"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      if (!r.checked) return;
+      SETTINGS.animColorPreset = r.value;
+      applyAnimColorPreset(r.value);
+      storeAnimColorsFor(SETTINGS.animBg);
+      saveSettings(); syncAnimSubEnabled();
+    });
+  });
+  // Custom color pickers
+  document.getElementById('opt-anim-color-a').addEventListener('input', function(e) {
+    SETTINGS.animColorA = e.target.value;
+    document.getElementById('anim-color-a-hex').textContent = e.target.value;
+    storeAnimColorsFor(SETTINGS.animBg);
+    saveSettings();
+  });
+  document.getElementById('opt-anim-color-b').addEventListener('input', function(e) {
+    SETTINGS.animColorB = e.target.value;
+    document.getElementById('anim-color-b-hex').textContent = e.target.value;
+    storeAnimColorsFor(SETTINGS.animBg);
+    saveSettings();
+  });
+  // Anim background image picker
+  var animBgFile = document.getElementById('opt-anim-bg-image-file');
+  if (animBgFile) {
+    animBgFile.addEventListener('change', function(e) {
+      var file = e.target.files && e.target.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function() {
+        var ok = saveAnimBgImage(reader.result);
+        if (!ok) return;
+        updateAnimBgImageStatus();
+        SETTINGS.animBg = 'image';
+        saveSettings();
+        document.querySelectorAll('input[name="anim-bg"]').forEach(function(r){ r.checked = (r.value === 'image'); });
+        syncAnimSubEnabled();
+      };
+      reader.onerror = function() { alert('Could not read that file.'); };
+      reader.readAsDataURL(file);
+      animBgFile.value = '';
+    });
+  }
+  var animBgClear = document.getElementById('opt-anim-bg-image-clear');
+  if (animBgClear) {
+    animBgClear.addEventListener('click', function() {
+      saveAnimBgImage('');
+      updateAnimBgImageStatus();
+    });
+  }
+  // View Style — swap Modern / Classic layout
+  document.querySelectorAll('input[name="view-style"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      if (!r.checked) return;
+      SETTINGS.viewStyle = r.value;
+      saveSettings();
+      rebuildRows();
+    });
+  });
+
+  // Background image picker
+  var fileInput = document.getElementById('opt-bg-image-file');
+  if (fileInput) {
+    fileInput.addEventListener('change', function(e) {
+      var file = e.target.files && e.target.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function() {
+        var dataUrl = reader.result;
+        var finish = function(ok) {
+          if (!ok) return;
+          updateBgImageStatus();
+          applyBg('image');            // switch to image bg now that we have one
+          document.querySelectorAll('input[name="bg"]').forEach(function(r){ r.checked = (r.value === 'image'); });
+        };
+        // In Electron, persist to disk and reference by file:// URL so large
+        // files / animated GIFs work (localStorage can't hold big data URLs).
+        if (window.electronAPI && window.electronAPI.saveBcastBgImage) {
+          window.electronAPI.saveBcastBgImage(dataUrl).then(function(filePath) {
+            if (filePath) {
+              SETTINGS.bgImage = filePath;
+              try { localStorage.setItem('alttp-broadcast-bg-image', filePath); } catch (e) {}
+              finish(true);
+            } else {
+              finish(saveBgImage(dataUrl));   // fallback: store the data URL
+            }
+          }).catch(function() { finish(saveBgImage(dataUrl)); });
+        } else {
+          finish(saveBgImage(dataUrl));       // browser: data URL only
+        }
+      };
+      reader.onerror = function() { alert('Could not read that file.'); };
+      reader.readAsDataURL(file);
+      // Reset so re-selecting the same file fires change
+      fileInput.value = '';
+    });
+  }
+  var clearBtn = document.getElementById('opt-bg-image-clear');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function() {
+      saveBgImage('');
+      if (window.electronAPI && window.electronAPI.clearBcastBgImage) window.electronAPI.clearBcastBgImage();
+      updateBgImageStatus();
+      document.documentElement.style.removeProperty('--bg-image');
+      // If image was the active bg, fall back to black
+      if (SETTINGS.bg === 'image') {
+        applyBg('black');
+        document.querySelectorAll('input[name="bg"]').forEach(function(r){ r.checked = (r.value === 'black'); });
+      }
+    });
+  }
+}
+
+// ── Tracker data ─────────────────────────────────────────────────────────
+// BASE is resolved from the approot query param passed by the app.
+// Start with the query-param approot if provided, otherwise 'items' (relative).
+// After init, getPaths() will update BASE and rebuild all img srcs if needed.
+var BASE = (function() {
+  var p = new URLSearchParams(window.location.search);
+  var approot = p.get('approot');
+  return approot ? approot + '/items' : 'items';
+})();
+
+// Race Mode: when on, item collect sounds are suppressed in the broadcast view.
+var RACE_MODE = (function() {
+  var p = new URLSearchParams(window.location.search);
+  return (p.get('race') || localStorage.getItem('alttp-race-mode') || 'no') === 'yes';
+})();
+
+
+var IMGS = {
+  bow:       ['bow00','bow10','bow11','bow12'],
+  boomerang: ['boomerang00','boomerang10','boomerang01','boomerang11'],
+  hookshot:  ['hookshot0','hookshot1'],
+  bomb:      ['bomb00','bomb10'],
+  mushroom:  ['mushroom0','mushroom1','mushroom2'],
+  powder:    ['powder00','powder10'],
+  firerod:   ['firerod0','firerod1'],
+  icerod:    ['icerod0','icerod1'],
+  moonpearl: ['moonpearl0','moonpearl1'],
+  sword:     ['sword0','sword1','sword2','sword3','sword4'],
+  agahnim:   ['aga10','aga11'],
+  bombos:    ['bombos00','bombos10'],
+  ether:     ['ether00','ether10'],
+  quake:     ['quake00','quake10'],
+  lamp:      ['lamp0','lamp1'],
+  hammer:    ['hammer0','hammer1'],
+  shovel:    ['shovel0','shovel1'],
+  flute:     ['flute00','flute10','flute11'],
+  net:       ['net0','net1'],
+  gloves:    ['gloves0','gloves1','gloves2'],
+  shield:    ['shield0','shield1','shield2','shield3'],
+  book:      ['book0','book1'],
+  bottle1:   ['bottle0','bottle_empty','bottle_red','bottle_green','bottle_blue','bottle_fairy','bottle_bee','bottle_goodbee'],
+  bottle2:   ['bottle0','bottle_empty','bottle_red','bottle_green','bottle_blue','bottle_fairy','bottle_bee','bottle_goodbee'],
+  bottle3:   ['bottle0','bottle_empty','bottle_red','bottle_green','bottle_blue','bottle_fairy','bottle_bee','bottle_goodbee'],
+  bottle4:   ['bottle0','bottle_empty','bottle_red','bottle_green','bottle_blue','bottle_fairy','bottle_bee','bottle_goodbee'],
+  somaria:   ['caneofsomaria0','caneofsomaria1'],
+  byrna:     ['caneofbyrna0','caneofbyrna1'],
+  cape:      ['cape0','cape1'],
+  mirror:    ['mirror0','mirror1','mirror2'],
+  halfmagic: ['halfmagic0','halfmagic1'],
+  boots:     ['boots0','boots1'],
+  flippers:  ['flippers0','flippers1'],
+  tunic:     ['mail0','mail1','mail2'],
+  gomode:    ['gomode0','gomode1'],
+};
+
+
+
+// ── Override view-apply functions with a notify (no tracker in this window) ──
+function applyBg(bg)            { if (bg !== undefined) SETTINGS.bg = bg; saveSettings(); } // saveSettings() also notifies the view
+function applyFillVariable()    { notifyBcastSettingsChanged(); }
+function applyDungeonColors()   { notifyBcastSettingsChanged(); }
+function applyDungeonVisibility(){ notifyBcastSettingsChanged(); }
+function applyDungeonFill()     { notifyBcastSettingsChanged(); }
+function applyDungeonBox()      { notifyBcastSettingsChanged(); }
+function applyKeyRowDisplay()   { }
+function refreshAllFills()      { notifyBcastSettingsChanged(); }
+function rebuildRows()          { notifyBcastSettingsChanged(); }
+
+document.addEventListener("DOMContentLoaded", function() {
+  var steps = [
+    loadSettings,
+    wireSettingsHandlers,
+    openSettings,          // populates every control from SETTINGS (and reveals the panel)
+    buildSparkSwatches,
+    function(){ if (SETTINGS.animColorPreset !== "custom") applyAnimColorPreset(SETTINGS.animColorPreset); }
+  ];
+  steps.forEach(function(fn){ try { fn(); } catch(e){ console.error('settings init step failed:', e); } });
+});
+</script>
+</body>
+</html>

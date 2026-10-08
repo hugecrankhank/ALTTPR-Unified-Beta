@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; connect-src *;">
+<title>Broadcast Item Sounds</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: #0d0d0d;
+  color: #ddd;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 13px;
+  height: 100%;
+}
+.profile-bar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 14px; flex-wrap: wrap;
+  border-bottom: 1px solid #222;
+  flex-shrink: 0;
+}
+.profile-label { color: #9aa0a8; font-size: 12px; }
+.profile-tab {
+  background: #22242a; border: 1px solid #3a3d45; color: #c8ccd2;
+  border-radius: 4px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+}
+.profile-tab.on { background: #2d6cdf; border-color: #2d6cdf; color: #fff; }
+.profile-tab.mute.on { background: #6b7078; border-color: #6b7078; }
+.profile-rename {
+  background: #22242a; border: 1px solid #2d6cdf; color: #fff;
+  border-radius: 4px; padding: 3px 8px; font-size: 12px; width: 110px;
+}
+.btn-rename {
+  margin-left: auto; background: none; border: 1px solid #3a3d45;
+  color: #9aa0a8; border-radius: 4px; padding: 3px 9px; font-size: 11px; cursor: pointer;
+}
+.mute-note {
+  padding: 14px; color: #9aa0a8; font-size: 12px; line-height: 1.6;
+}
+body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+h1 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid #333;
+  flex-shrink: 0;
+}
+.subtitle {
+  font-size: 11px;
+  color: #888;
+  padding: 6px 14px 8px;
+  border-bottom: 1px solid #222;
+  flex-shrink: 0;
+}
+.scroll-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 6px;
+}
+.scroll-area::-webkit-scrollbar { width: 6px; }
+.scroll-area::-webkit-scrollbar-track { background: #111; }
+.scroll-area::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+
+.item-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  transition: background 0.1s;
+}
+.item-row:hover { background: #1a1a1a; }
+
+/* Sub-level rows (per-upgrade sounds) */
+.item-row.sub {
+  padding-left: 28px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  border-left: 2px solid #2a2a2a;
+  margin-left: 10px;
+  border-radius: 0 5px 5px 0;
+}
+.item-row.sub .item-icon { width: 22px; height: 22px; opacity: 0.85; }
+.item-row.sub .item-name { color: #aaa; font-size: 11px; }
+
+.item-icon {
+  width: 28px; height: 28px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  flex-shrink: 0;
+}
+.item-name {
+  flex: 1;
+  color: #ccc;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sound-status {
+  font-size: 10px;
+  color: #666;
+  white-space: nowrap;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+.sound-status.has-sound { color: #5a5; }
+
+.btn-row {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+button {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  color: #ccc;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s;
+}
+button:hover { background: #3a3a3a; }
+button.btn-clear { border-color: #633; color: #c66; }
+button.btn-clear:hover { background: #2a1a1a; }
+button.btn-test { border-color: #446; color: #88c; }
+button.btn-test:hover { background: #1a1a2a; }
+
+.footer {
+  padding: 10px 14px;
+  border-top: 1px solid #222;
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.footer button {
+  flex: 1;
+  padding: 6px;
+  font-size: 12px;
+}
+.footer .btn-clear-all { border-color: #633; color: #c66; }
+.footer .btn-clear-all:hover { background: #2a1a1a; }
+
+input[type="file"] { display: none; }
+
+/* Per-sound volume. Stored beside the sound itself, so it belongs to that
+   sound in that profile and goes away when the sound is cleared. */
+input[type="range"].vol {
+  width: 58px; flex-shrink: 0; margin: 0;
+  accent-color: #88c; cursor: pointer;
+}
+input[type="range"].vol:disabled { opacity: 0.3; cursor: default; }
+.item-row.sub input[type="range"].vol { width: 48px; }
+</style>
+</head>
+<body>
+<h1>♪ Item Sounds</h1>
+<div class="subtitle">Assign a custom sound per item, each with its own volume. For bow, sword, gloves, shield and tunic, per-upgrade sounds override the base sound for that specific level.</div>
+
+<div class="profile-bar">
+  <span class="profile-label">Profile</span>
+  <span id="profile-tabs"></span>
+  <button class="btn-rename" onclick="renameProfile()">Rename</button>
+</div>
+
+<div class="scroll-area" id="item-list"></div>
+
+<div class="footer">
+  <button class="btn-clear-all" onclick="clearAllSounds()">Clear Sounds in This Profile</button>
+</div>
+
+<input type="file" id="file-picker" accept="audio/*">
+
+<script>
+// ── Sound profiles ─────────────────────────────────────────────────────────
+// Three sets of sounds the player can switch between. Profile 1 keeps the
+// original, unprefixed keys, so sounds assigned before profiles existed are
+// simply profile 1 and nothing has to be migrated. Profiles 2 and 3 prefix
+// their keys instead of copying anything — a copy would double the audio in
+// localStorage, which is the one thing that could blow its quota.
+var PROFILE_COUNT = 5;
+var MUTE_PROFILE  = PROFILE_COUNT;   // the last slot plays nothing at all
+function activeProfile() {
+  var p = parseInt(localStorage.getItem('alttp-sound-profile') || '1', 10);
+  return (p >= 1 && p <= PROFILE_COUNT) ? p : 1;
+}
+function profileName(n) {
+  if (n === MUTE_PROFILE) return 'No Sounds';
+  return localStorage.getItem('alttp-sound-profile-name-' + n) || ('Profile ' + n);
+}
+function setProfile(n) {
+  localStorage.setItem('alttp-sound-profile', String(n));
+  buildProfileTabs();
+  buildList();
+}
+
+// Rename in place. Electron has no window.prompt, so the active tab turns into
+// a text box — Enter or clicking away saves, Escape puts it back.
+function renameProfile() {
+  var n = activeProfile();
+  if (n === MUTE_PROFILE) return;         // that one's name is the point of it
+  var tab = document.querySelector('.profile-tab.on');
+  if (!tab) return;
+  var input = document.createElement('input');
+  input.className = 'profile-rename';
+  input.value = profileName(n);
+  var done = false;
+  var commit = function (save) {
+    if (done) return;
+    done = true;
+    if (save) {
+      var name = input.value.trim();
+      if (name) localStorage.setItem('alttp-sound-profile-name-' + n, name);
+      else localStorage.removeItem('alttp-sound-profile-name-' + n);
+    }
+    buildProfileTabs();
+  };
+  input.onkeydown = function (ev) {
+    if (ev.key === 'Enter')  { ev.preventDefault(); commit(true); }
+    if (ev.key === 'Escape') { ev.preventDefault(); commit(false); }
+  };
+  input.onblur = function () { commit(true); };
+  tab.replaceWith(input);
+  input.focus();
+  input.select();
+}
+
+function buildProfileTabs() {
+  var wrap = document.getElementById('profile-tabs');
+  wrap.innerHTML = '';
+  for (var n = 1; n <= PROFILE_COUNT; n++) {
+    (function (n) {
+      var b = document.createElement('button');
+      b.className = 'profile-tab' + (n === MUTE_PROFILE ? ' mute' : '') +
+                    (n === activeProfile() ? ' on' : '');
+      b.textContent = profileName(n);
+      b.onclick = function () { setProfile(n); };
+      wrap.appendChild(b);
+    })(n);
+  }
+  var rn = document.querySelector('.btn-rename');
+  if (rn) rn.disabled = (activeProfile() === MUTE_PROFILE);
+}
+
+// Items with sub:true are per-upgrade overrides for progressive items.
+// playItemSound() checks 'alttp-item-sound-{key}-{val}' first, then 'alttp-item-sound-{key}'.
+var ITEMS = [
+  // Go Mode isn't an item, but it's the one cue people most want to hear, so
+  // it sits at the top and is set per profile like everything else here.
+  { key: 'gomode',   name: 'Go Mode',             icon: 'items/gomode1.png' },
+  // ── Bow ─────────────────────────────────────────────────────────────────
+  { key: 'bow',      name: 'Bow (any upgrade)',   icon: 'items/bow10.png' },
+  { key: 'bow-1',    name: 'Bow Only',         icon: 'items/bow10.png',  sub: true },
+  { key: 'bow-2',    name: 'Wood Arrows',              icon: 'items/bow11.png',  sub: true },
+  { key: 'bow-3',    name: 'Silver Arrows',       icon: 'items/bow12.png',  sub: true },
+  // ── Sword ───────────────────────────────────────────────────────────────
+  { key: 'sword',    name: 'Sword (any upgrade)', icon: 'items/sword1.png' },
+  { key: 'sword-1',  name: "Fighter's Sword",     icon: 'items/sword1.png', sub: true },
+  { key: 'sword-2',  name: 'Master Sword',        icon: 'items/sword2.png', sub: true },
+  { key: 'sword-3',  name: 'Tempered Sword',      icon: 'items/sword3.png', sub: true },
+  { key: 'sword-4',  name: 'Golden Sword',        icon: 'items/sword4.png', sub: true },
+  // ── Gloves ──────────────────────────────────────────────────────────────
+  { key: 'gloves',   name: 'Gloves (any upgrade)',icon: 'items/gloves1.png' },
+  { key: 'gloves-1', name: 'Power Glove',         icon: 'items/gloves1.png', sub: true },
+  { key: 'gloves-2', name: "Titan's Mitt",        icon: 'items/gloves2.png', sub: true },
+  // ── Shield ──────────────────────────────────────────────────────────────
+  { key: 'shield',   name: 'Shield (any upgrade)',icon: 'items/shield1.png' },
+  { key: 'shield-1', name: 'Blue Shield',         icon: 'items/shield1.png', sub: true },
+  { key: 'shield-2', name: 'Fire Shield',         icon: 'items/shield2.png', sub: true },
+  { key: 'shield-3', name: 'Mirror Shield',       icon: 'items/shield3.png', sub: true },
+  // ── Tunic ───────────────────────────────────────────────────────────────
+  { key: 'tunic',    name: 'Tunic (any upgrade)', icon: 'items/mail1.png' },
+  { key: 'tunic-1',  name: 'Blue Mail',           icon: 'items/mail1.png',  sub: true },
+  { key: 'tunic-2',  name: 'Red Mail',            icon: 'items/mail2.png',  sub: true },
+  // ── Other items ─────────────────────────────────────────────────────────
+  { key: 'boomerang', name: 'Boomerang',          icon: 'items/boomerang10.png' },
+  { key: 'hookshot',  name: 'Hookshot',           icon: 'items/hookshot1.png' },
+  { key: 'mushroom',  name: 'Mushroom',           icon: 'items/mushroom1.png' },
+  { key: 'powder',    name: 'Magic Powder',       icon: 'items/powder00.png' },
+  { key: 'firerod',   name: 'Fire Rod',           icon: 'items/firerod1.png' },
+  { key: 'icerod',    name: 'Ice Rod',            icon: 'items/icerod1.png' },
+  { key: 'moonpearl', name: 'Moon Pearl',         icon: 'items/moonpearl1.png' },
+  { key: 'agahnim',   name: 'Agahnim Defeated',   icon: 'items/aga11.png' },
+  { key: 'bombos',    name: 'Bombos',             icon: 'items/bombos10.png' },
+  { key: 'ether',     name: 'Ether',              icon: 'items/ether10.png' },
+  { key: 'quake',     name: 'Quake',              icon: 'items/quake10.png' },
+  { key: 'lamp',      name: 'Lamp',               icon: 'items/lamp1.png' },
+  { key: 'hammer',    name: 'Hammer',             icon: 'items/hammer1.png' },
+  { key: 'shovel',    name: 'Shovel',             icon: 'items/shovel1.png' },
+  { key: 'flute',     name: 'Flute',              icon: 'items/flute10.png' },
+  { key: 'net',       name: 'Bug-Catching Net',   icon: 'items/net1.png' },
+  { key: 'book',      name: 'Book of Mudora',     icon: 'items/book1.png' },
+  { key: 'bottle1',   name: 'Bottle',             icon: 'items/bottle1.png' },
+  { key: 'somaria',   name: 'Cane of Somaria',    icon: 'items/caneofsomaria1.png' },
+  { key: 'byrna',     name: 'Cane of Byrna',      icon: 'items/caneofbyrna1.png' },
+  { key: 'cape',      name: 'Magic Cape',         icon: 'items/cape1.png' },
+  { key: 'mirror',    name: 'Magic Mirror',       icon: 'items/mirror1.png' },
+  { key: 'halfmagic', name: 'Half Magic',         icon: 'items/halfmagic1.png' },
+  { key: 'boots',     name: 'Pegasus Boots',      icon: 'items/boots1.png' },
+  { key: 'flippers',  name: 'Flippers',           icon: 'items/flippers1.png' },
+  { key: 'map',       name: 'Dungeon Map',        icon: 'items/map1.png' },
+  { key: 'compass',   name: 'Dungeon Compass',    icon: 'items/compass1.png' },
+  { key: 'bigkey',    name: 'Big Key',            icon: 'items/bigkey1.png' },
+];
+
+var _pendingKey = null;
+
+function lsKey(key) {
+  var p = activeProfile();
+  return 'alttp-item-sound-' + (p === 1 ? '' : 'p' + p + '-') + key;
+}
+
+function getSoundName(key) {
+  return localStorage.getItem(lsKey(key) + '-name') || (localStorage.getItem(lsKey(key)) ? 'Custom sound' : null);
+}
+
+function hasSound(key) { return !!localStorage.getItem(lsKey(key)); }
+
+// 0-100, default full. Held at '<sound key>-vol' so it is per sound AND per
+// profile, and clearing the sound clears its level with it.
+function getVol(key) {
+  var v = parseInt(localStorage.getItem(lsKey(key) + '-vol'), 10);
+  return (isNaN(v) || v < 0 || v > 100) ? 100 : v;
+}
+function setVol(key, v) {
+  if (v >= 100) localStorage.removeItem(lsKey(key) + '-vol');
+  else localStorage.setItem(lsKey(key) + '-vol', String(v));
+}
+
+function buildList() {
+  var list = document.getElementById('item-list');
+  list.innerHTML = '';
+  if (activeProfile() === MUTE_PROFILE) {
+    list.innerHTML = '<div class="mute-note">Every item collect is silent while ' +
+      'this profile is selected. Nothing is deleted — pick another profile to ' +
+      'get its sounds back.</div>';
+    return;
+  }
+  ITEMS.forEach(function(item) {
+    var row = document.createElement('div');
+    row.className = 'item-row' + (item.sub ? ' sub' : '');
+    row.id = 'row-' + item.key;
+
+    var icon = document.createElement('img');
+    icon.className = 'item-icon';
+    icon.src = item.icon;
+    icon.onerror = function() { this.style.visibility = 'hidden'; };
+
+    var name = document.createElement('div');
+    name.className = 'item-name';
+    name.textContent = item.name;
+
+    var status = document.createElement('div');
+    status.className = 'sound-status' + (hasSound(item.key) ? ' has-sound' : '');
+    status.id = 'status-' + item.key;
+    var sn = getSoundName(item.key);
+    status.textContent = sn ? sn : 'No sound';
+
+    var vol = document.createElement('input');
+    vol.type = 'range'; vol.min = 0; vol.max = 100;
+    vol.className = 'vol';
+    vol.id = 'vol-' + item.key;
+    vol.value = getVol(item.key);
+    vol.disabled = !hasSound(item.key);
+    vol.title = 'Volume';
+    vol.oninput = (function (k) { return function () {
+      setVol(k, parseInt(this.value, 10));
+      this.title = 'Volume ' + this.value + '%';
+    }; })(item.key);
+
+    var btns = document.createElement('div');
+    btns.className = 'btn-row';
+
+    var btnBrowse = document.createElement('button');
+    btnBrowse.textContent = 'Browse';
+    btnBrowse.onclick = (function(k) { return function() { browseSound(k); }; })(item.key);
+
+    var btnTest = document.createElement('button');
+    btnTest.className = 'btn-test';
+    btnTest.textContent = '▶';
+    btnTest.title = 'Test sound';
+    btnTest.onclick = (function(k) { return function() { testSound(k); }; })(item.key);
+
+    var btnClear = document.createElement('button');
+    btnClear.className = 'btn-clear';
+    btnClear.textContent = '✕';
+    btnClear.title = 'Clear sound';
+    btnClear.onclick = (function(k) { return function() { clearSound(k); }; })(item.key);
+
+    btns.appendChild(btnBrowse);
+    btns.appendChild(btnTest);
+    btns.appendChild(btnClear);
+
+    row.appendChild(icon);
+    row.appendChild(name);
+    row.appendChild(status);
+    row.appendChild(vol);
+    row.appendChild(btns);
+    list.appendChild(row);
+  });
+}
+
+function updateRowStatus(key) {
+  var vol = document.getElementById('vol-' + key);
+  if (vol) { vol.disabled = !hasSound(key); vol.value = getVol(key); }
+  var status = document.getElementById('status-' + key);
+  if (!status) return;
+  var sn = getSoundName(key);
+  if (sn) {
+    status.textContent = sn;
+    status.className = 'sound-status has-sound';
+  } else {
+    status.textContent = 'No sound';
+    status.className = 'sound-status';
+  }
+}
+
+function browseSound(key) {
+  _pendingKey = key;
+  var fp = document.getElementById('file-picker');
+  fp.value = '';
+  fp.click();
+}
+
+document.getElementById('file-picker').addEventListener('change', function() {
+  var file = this.files[0];
+  if (!file || !_pendingKey) return;
+  var key = _pendingKey;
+  _pendingKey = null;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var dataUrl = e.target.result;
+    localStorage.setItem(lsKey(key), dataUrl);
+    localStorage.setItem(lsKey(key) + '-name', file.name);
+    updateRowStatus(key);
+  };
+  reader.readAsDataURL(file);
+});
+
+function testSound(key) {
+  var dataUrl = localStorage.getItem(lsKey(key));
+  if (!dataUrl) return;
+  try {
+    var a = new Audio(dataUrl);
+    a.volume = getVol(key) / 100;      // test at the level it will actually play
+    a.play().catch(function() {});
+  } catch(e) {}
+}
+
+function clearSound(key) {
+  localStorage.removeItem(lsKey(key));
+  localStorage.removeItem(lsKey(key) + '-name');
+  localStorage.removeItem(lsKey(key) + '-vol');
+  updateRowStatus(key);
+}
+
+function clearAllSounds() {
+  if (!confirm('Clear all item sounds?')) return;
+  ITEMS.forEach(function(item) {
+    localStorage.removeItem(lsKey(item.key));
+    localStorage.removeItem(lsKey(item.key) + '-name');
+    localStorage.removeItem(lsKey(item.key) + '-vol');
+    updateRowStatus(item.key);
+  });
+}
+
+try {
+  buildProfileTabs();
+  buildList();
+} catch(e) {
+  document.getElementById('item-list').innerHTML =
+    '<div style="padding:16px;color:#c66;font-size:12px;">Error loading list: ' + e.message + '</div>';
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="../bridge/sni-shim.js"></script> <!-- unified-app: routes SNI WebSocket to built-in emulator -->
+<meta charset="UTF-8">
+<title>ALTTP Timer</title>
+<meta http-equiv="Content-Security-Policy" content="connect-src * ws://*:*;">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: Arial, sans-serif;
+  background: #000000;
+  color: #ccc;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  user-select: none;
+  overflow: hidden;
+}
+
+.size-btn {
+  width: 18px;
+  height: 18px;
+  background: #1a1a1a;
+  color: #888;
+  border: 1px solid #333;
+  border-radius: 3px;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.size-btn:hover { background: #333; color: #fff; }
+.size-btn:active { transform: scale(0.9); }
+
+/* ── Main content area ── */
+#content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+/* ── Timer display ── */
+.timer-display { text-align: center; }
+
+#timer-main {
+  font-size: 52px;
+  font-weight: bold;
+  font-family: var(--timer-font, Arial, Helvetica, sans-serif);
+  color: var(--timer-color, #3498db);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 2px;
+  transition: font-size 0.15s;
+}
+
+#timer-centis {
+  font-size: 30px;
+  font-weight: bold;
+  font-family: var(--timer-font, Arial, Helvetica, sans-serif);
+  color: var(--timer-color-dim, #2a7ab8);
+  font-variant-numeric: tabular-nums;
+  transition: font-size 0.15s;
+}
+
+/* Sub-second digits off: hidden, not removed, so nothing reflows. */
+.timer-display.no-centis #timer-centis { display: none; }
+.timer-display.running #timer-main   { color: var(--timer-color, #3498db); }
+.timer-display.running #timer-centis { color: var(--timer-color-dim, #2a7ab8); }
+.timer-display.finished #timer-main   { color: var(--timer-color, #3498db); opacity: 0.7; }
+.timer-display.finished #timer-centis { color: var(--timer-color-dim, #2a7ab8); opacity: 0.7; }
+
+/* ── Controls ── */
+.controls {
+  display: flex;
+  gap: 8px;
+}
+
+.ctrl-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, transform 0.1s;
+}
+.ctrl-btn:active { transform: scale(0.92); }
+
+#btn-playpause { background: #1a5c2e; color: #2ecc71; border: 1px solid #2ecc71; }
+#btn-playpause:hover { background: #2ecc71; color: #000; }
+#btn-playpause.running { background: #5c4a00; color: #ffd700; border-color: #ffd700; }
+#btn-playpause.running:hover { background: #ffd700; color: #000; }
+
+#btn-reset { background: #1a1a1a; color: #888; border: 1px solid #444; }
+#btn-reset:hover { background: #444; color: #fff; }
+
+/* ── Set time ── */
+.set-time {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.set-time input {
+  background: #111;
+  color: #ccc;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-family: monospace;
+  text-align: center;
+  width: 90px;
+}
+.set-time input:focus { outline: none; border-color: #3498db; }
+
+.set-btn {
+  background: #1a2e4a;
+  color: #7ab8f5;
+  border: 1px solid #2a4e7a;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.set-btn:hover { background: #2a4a6a; }
+
+/* ── Bottom bar: size buttons left, status centre ── */
+#bottombar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 8px;
+  background: #0a0a0a;
+  border-top: 1px solid #1a1a1a;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.size-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+#conn-status {
+  font-size: 10px;
+  color: #555;
+}
+#conn-status.connected    { color: #2ecc71; }
+#conn-status.connecting   { color: #f39c12; }
+#conn-status.disconnected { color: #e74c3c; }
+
+/* ── Background themes ── */
+[data-bg="grey"]        body { background: #2a2a2a; }
+[data-bg="white"]       body { background: #ffffff; }
+html[data-bg="transparent"] body { background: transparent !important; background-color: transparent !important; padding-top: 30px; }
+html[data-bg="transparent"] body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 140px;   /* leave room for Windows caption buttons */
+    height: 30px;
+    -webkit-app-region: drag;
+    z-index: 9999;
+}
+html[data-bg="transparent"] #bottombar {
+    background: rgba(0,0,0,0.5) !important;
+    border-top-color: rgba(255,255,255,0.15) !important;
+    -webkit-app-region: drag;
+    cursor: move;
+}
+html[data-bg="transparent"] #bottombar * {
+    -webkit-app-region: no-drag;
+    cursor: default;
+}
+html[data-bg="transparent"] #content, html[data-bg="transparent"] #timer-display { background: transparent !important; }
+html[data-bg="transparent"] .set-time input { background: rgba(0,0,0,0.4) !important; border-color: rgba(255,255,255,0.2) !important; }
+html[data-bg="transparent"] .set-btn { background: rgba(0,30,60,0.6) !important; }
+
+/* Grey: dark bottom bar matching item tracker style */
+[data-bg="grey"]  #bottombar  { background: #0a0a0a; border-top-color: #1a1a1a; }
+[data-bg="grey"]  #conn-status { color: #95a5a6; }
+[data-bg="grey"]  #conn-status.connected    { color: #2ecc71; }
+[data-bg="grey"]  #conn-status.connecting   { color: #f39c12; }
+[data-bg="grey"]  #conn-status.disconnected { color: #e74c3c; }
+[data-bg="grey"]  .size-btn   { background: #1a1a1a; color: #888; border-color: #333; }
+[data-bg="grey"]  .size-btn:hover { background: #333; color: #fff; }
+[data-bg="grey"]  .set-time input { background: #3d3d3d; color: #ccc; border-color: #555; }
+[data-bg="grey"]  .set-btn    { background: #1a2e4a; color: #7ab8f5; border-color: #2a4e7a; }
+
+/* White: light bottom bar */
+[data-bg="white"] #bottombar  { background: #e0e0e0; border-top-color: #bbb; }
+[data-bg="white"] #conn-status { color: #444; }
+[data-bg="white"] #conn-status.connected    { color: #1a7a1a; }
+[data-bg="white"] #conn-status.disconnected { color: #cc2200; }
+[data-bg="white"] .size-btn   { background: #ccc; color: #333; border-color: #aaa; }
+[data-bg="white"] .size-btn:hover { background: #bbb; color: #000; }
+[data-bg="white"] .set-time input { background: #eee; color: #111; border-color: #aaa; }
+[data-bg="white"] .set-btn    { background: #c8dcf0; color: #1a4a7a; border-color: #aac; }
+
+/* ── Settings popup ── */
+.timer-settings-btn {
+  width: 18px; height: 18px;
+  background: #1a1a1a; color: #888;
+  border: 1px solid #333; border-radius: 3px;
+  font-size: 11px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.timer-settings-btn:hover { background: #333; color: #fff; }
+[data-bg="white"] .timer-settings-btn { background: #ccc; color: #333; border-color: #aaa; }
+[data-bg="white"] .timer-settings-btn:hover { background: #bbb; color: #000; }
+html[data-bg="transparent"] .timer-settings-btn { background: rgba(0,0,0,0.5); border-color: rgba(255,255,255,0.2); }
+
+#timer-settings-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 10000;
+}
+#timer-settings-overlay.hidden { display: none; }
+.ts-modal {
+  background: #1a1a1a; color: #ddd;
+  border: 1px solid #444; border-radius: 6px;
+  width: 280px; max-width: 92%;
+  font-family: Arial, sans-serif;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+}
+.ts-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; border-bottom: 1px solid #333;
+}
+.ts-header h3 { font-size: 13px; color: #fff; margin: 0; }
+.ts-close {
+  background: transparent; border: none; color: #888; font-size: 18px;
+  cursor: pointer; line-height: 1; padding: 0 4px;
+}
+.ts-close:hover { color: #fff; }
+.ts-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 12px; }
+.ts-section { display: flex; flex-direction: column; gap: 6px; }
+.ts-section > h4 {
+  font-size: 11px; color: #4dff88; text-transform: uppercase;
+  letter-spacing: 0.5px; font-weight: bold; margin: 0;
+}
+.ts-radios { display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; }
+.ts-radios label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.ts-radios input[type="radio"] { margin: 0; cursor: pointer; }
+.ts-color {
+  width: 28px; height: 18px; padding: 0; border: 1px solid #444;
+  background: transparent; cursor: pointer; vertical-align: middle;
+}
+</style>
+</head>
+<body>
+
+<div id="content">
+  <div class="timer-display" id="timer-display">
+    <span id="timer-main">00:00:00</span><span id="timer-centis">.00</span>
+  </div>
+
+  <div class="controls">
+    <button class="ctrl-btn" id="btn-playpause" title="Pause in a Menu" onclick="togglePlayPause()">▶</button>
+    <button class="ctrl-btn" id="btn-reset"     onclick="resetTimer()">↻</button>
+  </div>
+
+  <div class="set-time">
+    <input type="text" id="time-input" placeholder="HH:MM:SS" maxlength="8">
+    <button class="set-btn" onclick="setTimeFromInput()">Set</button>
+  </div>
+</div>
+ <div align="center" class="info" style="font-size:8.5px;padding-left:8px;margin-top:6px;color:#98959a;font-style:italic;;">⚠ Pause will only work while the game is in a menu.⚠</div>
+
+<div id="bottombar">
+  <div class="size-group">
+    <button class="size-btn" onclick="changeSize(-4)">−</button>
+    <button class="size-btn" onclick="changeSize(4)">+</button>
+    <button class="timer-settings-btn" id="timer-settings-btn" title="Settings" onclick="openTimerSettings()">⚙</button>
+  </div>
+  <div id="conn-status" class="disconnected">○ No device</div>
+  <div style="width:40px;flex-shrink:0;"></div>
+</div>
+
+<div id="timer-settings-overlay" class="hidden" onclick="if(event.target===this)closeTimerSettings()">
+  <div class="ts-modal">
+    <div class="ts-header">
+      <h3>Timer Settings</h3>
+      <button class="ts-close" onclick="closeTimerSettings()">×</button>
+    </div>
+    <div class="ts-body">
+      <div class="ts-section">
+        <h4>Number Color</h4>
+        <div class="ts-radios">
+          <label><input type="radio" name="ts-color" value="blue">   Blue</label>
+          <label><input type="radio" name="ts-color" value="green">  Green</label>
+          <label><input type="radio" name="ts-color" value="red">    Red</label>
+          <label><input type="radio" name="ts-color" value="orange"> Orange</label>
+          <label><input type="radio" name="ts-color" value="purple"> Purple</label>
+          <label><input type="radio" name="ts-color" value="yellow"> Yellow</label>
+          <label><input type="radio" name="ts-color" value="pink">   Pink</label>
+          <label><input type="radio" name="ts-color" value="custom"> Custom</label>
+          <input type="color" class="ts-color" id="ts-color-custom" value="#3498db">
+        </div>
+      </div>
+
+      <div class="ts-section">
+        <h4>Font</h4>
+        <div class="ts-radios">
+          <select id="ts-font" style="background:#111;color:#ddd;border:1px solid #333;border-radius:4px;padding:4px 8px;font-size:12px;">
+            <option value="sans">System UI</option>
+            <option value="arial">Arial</option>
+            <option value="arialblack">Arial Black</option>
+            <option value="arialnarrow">Arial Narrow</option>
+            <option value="verdana">Verdana</option>
+            <option value="trebuchet">Trebuchet MS</option>
+            <option value="tahoma">Tahoma</option>
+            <option value="georgia">Georgia</option>
+            <option value="times">Times New Roman</option>
+            <option value="palatino">Palatino</option>
+            <option value="impact">Impact</option>
+            <option value="comic">Comic Sans MS</option>
+            <option value="couriernew">Courier New</option>
+            <option value="mono">Monospace (Consolas / Menlo)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="ts-section">
+        <h4>Sub-seconds</h4>
+        <div class="ts-radios">
+          <label><input type="checkbox" id="ts-centis"> Hide hundredths (.00)</label>
+          <div id="ts-centis-race" style="font-size:10px;color:#888;margin-top:4px;display:none;">
+            Race Mode is on — hundredths always show.
+          </div>
+        </div>
+      </div>
+
+      <div class="ts-section">
+        <h4>Background</h4>
+        <div class="ts-radios">
+          <label><input type="radio" name="ts-bg" value="black">       Black</label>
+          <label><input type="radio" name="ts-bg" value="grey">        Grey</label>
+          <label><input type="radio" name="ts-bg" value="white">       White</label>
+          <label><input type="radio" name="ts-bg" value="transparent"> Transparent</label>
+          <label><input type="radio" name="ts-bg" value="custom">      Custom</label>
+          <input type="color" class="ts-color" id="ts-bg-custom" value="#222222">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+var centiseconds = 0;
+var intervalId   = null;
+var isRunning    = false;
+var fontSize     = 52;
+var fontSizeSub  = Math.round(fontSize * 0.58);
+
+var dispMain   = document.getElementById('timer-main');
+var dispCentis = document.getElementById('timer-centis');
+var dispWrap   = document.getElementById('timer-display');
+var btnPlay    = document.getElementById('btn-playpause');
+var connStatus = document.getElementById('conn-status');
+
+// ── URL params ────────────────────────────────────────────────────────────────
+var p      = new URLSearchParams(window.location.search);
+var wsHost = p.get('wshost') || p.get('host') || localStorage.getItem('alttp-ws-host') || 'localhost';
+var wsPort = p.get('wsport') || p.get('port') || localStorage.getItem('alttp-ws-port') || '23074';
+
+// ── Timer settings (color + bg) ──────────────────────────────────────────────
+var TIMER_COLORS = {
+  blue:   { main: '#3498db', dim: '#2a7ab8' },
+  green:  { main: '#2ecc71', dim: '#27ae60' },
+  red:    { main: '#b20d1d', dim: '#cd1325' },
+  orange: { main: '#d36a0f', dim: '#eb7611' },
+  purple: { main: '#7c13cd', dim: '#8914e3' },
+  yellow: { main: '#ffd700', dim: '#c8a800' },
+  pink:   { main: '#e314d2', dim: '#eb11d9' },
+};
+
+// Every entry resolves on a stock Windows AND a stock macOS — the core web
+// font set both ship, plus two stacks for the faces each OS names differently
+// (Palatino Linotype / Palatino, Consolas / Menlo). A generic family closes
+// each stack so nothing can fall through to something unreadable.
+var TIMER_FONTS = {
+  sans:        "system-ui, 'Segoe UI', -apple-system, Helvetica, Arial, sans-serif",
+  arial:       "Arial, Helvetica, sans-serif",
+  arialblack:  "'Arial Black', Gadget, sans-serif",
+  arialnarrow: "'Arial Narrow', 'Helvetica Neue Condensed', Arial, sans-serif",
+  verdana:     "Verdana, Geneva, sans-serif",
+  trebuchet:   "'Trebuchet MS', 'Lucida Grande', sans-serif",
+  tahoma:      "Tahoma, Geneva, Verdana, sans-serif",
+  georgia:     "Georgia, 'Times New Roman', serif",
+  times:       "'Times New Roman', Times, serif",
+  palatino:    "'Palatino Linotype', Palatino, 'Book Antiqua', serif",
+  impact:      "Impact, Haettenschweiler, 'Arial Black', sans-serif",
+  comic:       "'Comic Sans MS', 'Comic Sans', cursive",
+  couriernew:  "'Courier New', Courier, monospace",
+  mono:        "Consolas, Menlo, 'DejaVu Sans Mono', monospace"
+};
+
+var TIMER_SETTINGS = {
+  color:        'blue',
+  colorCustom:  '#3498db',
+  bg:           'black',
+  bgCustom:     '#222222',
+  font:         'arial',
+  fontCustom:   '',
+  showCentis:   true      // hundredths on by default
+};
+
+// Race Mode forces the hundredths back on: a race time is reported to the
+// hundredth, so hiding them is a decoration the racer doesn't get to keep.
+function raceModeOn() {
+  try {
+    return (p.get('race') || localStorage.getItem('alttp-race-mode') || 'no') === 'yes';
+  } catch (e) { return false; }
+}
+
+function loadTimerSettings() {
+  try {
+    TIMER_SETTINGS.color       = localStorage.getItem('alttp-timer-color')         || TIMER_SETTINGS.color;
+    TIMER_SETTINGS.colorCustom = localStorage.getItem('alttp-timer-color-custom')  || TIMER_SETTINGS.colorCustom;
+    TIMER_SETTINGS.bg          = localStorage.getItem('alttp-timer-bg')            || TIMER_SETTINGS.bg;
+    TIMER_SETTINGS.bgCustom    = localStorage.getItem('alttp-timer-bg-custom')     || TIMER_SETTINGS.bgCustom;
+    TIMER_SETTINGS.font        = localStorage.getItem('alttp-timer-font')          || TIMER_SETTINGS.font;
+    TIMER_SETTINGS.fontCustom  = localStorage.getItem('alttp-timer-font-custom')   || TIMER_SETTINGS.fontCustom;
+    var sc = localStorage.getItem('alttp-timer-centis');
+    if (sc !== null) TIMER_SETTINGS.showCentis = (sc !== 'no');
+  } catch (e) {}
+  // URL params win at launch (the launcher passes them through)
+  var urlColor = p.get('color');
+  var urlBg    = p.get('bg');
+  if (urlColor) TIMER_SETTINGS.color = urlColor;
+  if (urlBg)    TIMER_SETTINGS.bg    = urlBg;
+}
+
+function saveTimerSettings() {
+  try {
+    localStorage.setItem('alttp-timer-color',        TIMER_SETTINGS.color);
+    localStorage.setItem('alttp-timer-color-custom', TIMER_SETTINGS.colorCustom);
+    localStorage.setItem('alttp-timer-bg',           TIMER_SETTINGS.bg);
+    localStorage.setItem('alttp-timer-bg-custom',    TIMER_SETTINGS.bgCustom);
+    localStorage.setItem('alttp-timer-font',         TIMER_SETTINGS.font);
+    localStorage.setItem('alttp-timer-font-custom',  TIMER_SETTINGS.fontCustom);
+    localStorage.setItem('alttp-timer-centis',       TIMER_SETTINGS.showCentis ? 'yes' : 'no');
+  } catch (e) {}
+}
+
+// Multiply each rgb channel by `factor` (0..1) for the dim/centis colour.
+function darkenHex(hex, factor) {
+  var h = (hex || '#000000').replace('#','');
+  if (h.length === 3) h = h.split('').map(function(c){return c+c;}).join('');
+  var r = Math.round(parseInt(h.substr(0,2),16) * factor);
+  var g = Math.round(parseInt(h.substr(2,2),16) * factor);
+  var b = Math.round(parseInt(h.substr(4,2),16) * factor);
+  function toHex(n) { return n.toString(16).padStart(2,'0'); }
+  return '#' + toHex(r) + toHex(g) + toHex(b);
+}
+
+function applyTimerColor() {
+  if (TIMER_SETTINGS.color === 'custom') {
+    var c   = TIMER_SETTINGS.colorCustom;
+    var dim = darkenHex(c, 0.78);
+    document.documentElement.style.setProperty('--timer-color',     c);
+    document.documentElement.style.setProperty('--timer-color-dim', dim);
+  } else {
+    var pair = TIMER_COLORS[TIMER_SETTINGS.color] || TIMER_COLORS.blue;
+    document.documentElement.style.setProperty('--timer-color',     pair.main);
+    document.documentElement.style.setProperty('--timer-color-dim', pair.dim);
+  }
+}
+
+function applyTimerFont() {
+  // A saved 'custom' name from the earlier free-text version still resolves,
+  // so nobody's setting breaks; the picker itself only offers the list above.
+  var f = (TIMER_SETTINGS.font === 'custom' && TIMER_SETTINGS.fontCustom)
+        ? TIMER_SETTINGS.fontCustom + ", 'Segoe UI', Arial, sans-serif"
+        : (TIMER_FONTS[TIMER_SETTINGS.font] || TIMER_FONTS.arial);
+  document.documentElement.style.setProperty('--timer-font', f);
+}
+
+// Set the display's state class without losing the no-centis modifier.
+function setDispState(state) {
+  dispWrap.className = 'timer-display' + (state ? ' ' + state : '');
+  applyTimerCentis();
+}
+function applyTimerCentis() {
+  var show = TIMER_SETTINGS.showCentis || raceModeOn();
+  dispWrap.classList.toggle('no-centis', !show);
+}
+
+function applyTimerBg() {
+  var bg = TIMER_SETTINGS.bg;
+  // Clear any prior inline overrides — the [data-bg] CSS rules handle the
+  // named modes, and inline body.style is used only for "custom".
+  document.body.style.background = '';
+  document.body.style.backgroundColor = '';
+  if (bg === 'black') {
+    document.documentElement.removeAttribute('data-bg');
+  } else if (bg === 'custom') {
+    document.documentElement.setAttribute('data-bg', 'custom');
+    document.body.style.background = TIMER_SETTINGS.bgCustom;
+  } else {
+    document.documentElement.setAttribute('data-bg', bg);
+  }
+  if (window.electronAPI && window.electronAPI.setTimerBg) window.electronAPI.setTimerBg(bg);
+}
+
+// ── Settings popup wiring ────────────────────────────────────────────────────
+function openTimerSettings() {
+  document.querySelectorAll('input[name="ts-color"]').forEach(function(r) { r.checked = (r.value === TIMER_SETTINGS.color); });
+  document.querySelectorAll('input[name="ts-bg"]').forEach(function(r)    { r.checked = (r.value === TIMER_SETTINGS.bg); });
+  document.getElementById('ts-color-custom').value = TIMER_SETTINGS.colorCustom;
+  document.getElementById('ts-bg-custom').value    = TIMER_SETTINGS.bgCustom;
+  var fsel = document.getElementById('ts-font');
+  fsel.value = TIMER_SETTINGS.font;
+  if (!fsel.value) fsel.value = 'arial';      // a retired value falls back
+  var cb = document.getElementById('ts-centis');
+  cb.checked  = !(TIMER_SETTINGS.showCentis || raceModeOn());
+  cb.disabled = raceModeOn();
+  document.getElementById('ts-centis-race').style.display = raceModeOn() ? '' : 'none';
+  document.getElementById('timer-settings-overlay').classList.remove('hidden');
+}
+function closeTimerSettings() {
+  document.getElementById('timer-settings-overlay').classList.add('hidden');
+}
+
+document.querySelectorAll('input[name="ts-color"]').forEach(function(r) {
+  r.addEventListener('change', function() {
+    if (!r.checked) return;
+    TIMER_SETTINGS.color = r.value;
+    saveTimerSettings(); applyTimerColor();
+  });
+});
+document.getElementById('ts-color-custom').addEventListener('input', function(e) {
+  TIMER_SETTINGS.colorCustom = e.target.value;
+  if (TIMER_SETTINGS.color === 'custom') applyTimerColor();
+  saveTimerSettings();
+});
+document.querySelectorAll('input[name="ts-bg"]').forEach(function(r) {
+  r.addEventListener('change', function() {
+    if (!r.checked) return;
+    TIMER_SETTINGS.bg = r.value;
+    saveTimerSettings(); applyTimerBg();
+  });
+});
+document.getElementById('ts-bg-custom').addEventListener('input', function(e) {
+  TIMER_SETTINGS.bgCustom = e.target.value;
+  if (TIMER_SETTINGS.bg === 'custom') applyTimerBg();
+  saveTimerSettings();
+});
+document.getElementById('ts-font').addEventListener('change', function(e) {
+  TIMER_SETTINGS.font = e.target.value;
+  saveTimerSettings(); applyTimerFont();
+});
+document.getElementById('ts-centis').addEventListener('change', function(e) {
+  if (raceModeOn()) { e.target.checked = false; return; }  // race: not optional
+  TIMER_SETTINGS.showCentis = !e.target.checked;
+  saveTimerSettings(); applyTimerCentis();
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeTimerSettings();
+});
+
+// Race Mode is set in the launcher, which writes it to localStorage; pick up a
+// change made while this window is open.
+window.addEventListener('storage', function (ev) {
+  if (ev.key === 'alttp-race-mode') applyTimerCentis();
+});
+
+loadTimerSettings();
+applyTimerColor();
+applyTimerBg();
+applyTimerFont();
+applyTimerCentis();
+
+// ── Font size controls ────────────────────────────────────────────────────────
+function changeSize(delta) {
+  fontSize = Math.max(20, Math.min(120, fontSize + delta));
+  fontSizeSub = Math.round(fontSize * 0.58);
+  dispMain.style.fontSize   = fontSize + 'px';
+  dispCentis.style.fontSize = fontSizeSub + 'px';
+}
+
+// ── Formatting ────────────────────────────────────────────────────────────────
+function formatTime(cs) {
+  var neg = cs < 0;
+  var abs = Math.abs(cs);
+  var h = Math.floor(abs / 360000);
+  var m = Math.floor((abs % 360000) / 6000);
+  var s = Math.floor((abs % 6000) / 100);
+  var c = abs % 100;
+  var main = (neg ? '-' : '') + pad(h) + ':' + pad(m) + ':' + pad(s);
+  return { main: main, centis: '.' + pad(c) };
+}
+function pad(n) { return String(Math.abs(n)).padStart(2, '0'); }
+
+function updateDisplay() {
+  var t = formatTime(centiseconds);
+  dispMain.textContent   = t.main;
+  dispCentis.textContent = t.centis;
+}
+
+// ── Timer controls ────────────────────────────────────────────────────────────
+// The clock is MONOTONIC, not wall clock. performance.now() counts from a fixed
+// origin and can't jump: an NTP correction, a DST change or someone setting the
+// system clock mid-run moves Date.now() and would move the run with it. This is
+// the same choice livesplit-core makes (its TimeStamp wraps the platform's
+// monotonic instant rather than the calendar clock).
+//
+// Every frame recomputes the whole elapsed time from (now - origin); nothing is
+// accumulated tick by tick, so a dropped or late frame can't lose or gain time
+// — it just means one frame drew a slightly older number. The display runs on
+// requestAnimationFrame (per frame, ~16 ms) rather than a 50 ms interval, so
+// the centiseconds read exactly what the clock says at paint time. A slow
+// interval runs alongside it purely as a backstop, for when the window is
+// hidden or minimised and rAF stops firing.
+function _now() {
+  return (window.performance && performance.now) ? performance.now() : Date.now();
+}
+var _startMs = 0;     // monotonic origin (ms) for the current run
+var _baseCs  = 0;     // centiseconds at that origin
+var _rafId   = 0;
+
+function startTimer() {
+  if (isRunning) return;
+  isRunning = true;
+  _startMs = _now();
+  _baseCs  = centiseconds;
+  intervalId = setInterval(timerTick, 250);      // backstop only
+  _rafId = requestAnimationFrame(_rafTick);
+  btnPlay.textContent = '⏸';
+  btnPlay.className   = 'ctrl-btn running';
+  setDispState('running');
+}
+
+function timerTick() {
+  // Truncate, the way LiveSplit does: the shown time never runs ahead of the
+  // real one.
+  centiseconds = _baseCs + Math.floor((_now() - _startMs) / 10);
+  updateDisplay();
+}
+
+function _rafTick() {
+  if (!isRunning) return;
+  timerTick();
+  _rafId = requestAnimationFrame(_rafTick);
+}
+
+function stopTimer() {
+  if (!isRunning) return;
+  isRunning = false;
+  // Take one last reading at the moment of the stop, so pausing doesn't round
+  // down to whatever the previous frame drew.
+  timerTick();
+  clearInterval(intervalId);
+  if (_rafId) { cancelAnimationFrame(_rafId); _rafId = 0; }
+  btnPlay.textContent = '▶';
+  btnPlay.className   = 'ctrl-btn';
+}
+
+function finishTimer() {
+  stopTimer();
+  setDispState('finished');
+}
+
+function togglePlayPause() {
+  if (isRunning) stopTimer(); else startTimer();
+}
+
+function resetTimer() {
+  stopTimer();
+  centiseconds = 0;
+  updateDisplay();
+  setDispState('');
+}
+
+function setTimeFromInput() {
+  var val = document.getElementById('time-input').value.trim();
+  var neg = val.charAt(0) === '-';
+  if (neg) val = val.slice(1);
+  var parts = val.split(':').map(function(x) { return parseInt(x) || 0; });
+  var h = 0, m = 0, s = 0;
+  if (parts.length === 3)      { h = parts[0]; m = parts[1]; s = parts[2]; }
+  else if (parts.length === 2) { m = parts[0]; s = parts[1]; }
+  else                         { s = parts[0]; }
+  centiseconds = (h * 3600 + m * 60 + s) * 100 * (neg ? -1 : 1);
+  // If the timer is currently running, re-base the wall clock so the next
+  // tick continues from this new value instead of snapping back to the old one.
+  if (isRunning) {
+    _startMs = _now();
+    _baseCs  = centiseconds;
+  }
+  updateDisplay();
+  document.getElementById('time-input').value = '';
+}
+
+document.getElementById('time-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') setTimeFromInput();
+});
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+var _ws             = null;
+var _reconnectTimer = null;
+var _deviceAttached = false;
+var _pendingRead    = false;
+var _pollTimer      = null;
+var _validReadCount = 0;     // counts consecutive valid gameplay reads
+var _zeroReadCount  = 0;     // counts consecutive garbage reads
+var ZERO_READ_LIMIT = 20;    // garbage reads before re-validating (~5s at 250ms)
+
+var _lastGamemode   = -1;
+var _triforceCount  = 0;
+var TRIFORCE_CONFIRM = 2;
+// When the item tracker is running it polls F50010 and broadcasts the value
+// over BroadcastChannel. While those broadcasts are fresh, the timer skips
+// its own SNES poll entirely — same pattern the map already uses for room
+// data. Falls back to direct polling automatically when broadcasts go stale.
+var START_POLL_MS   = 60;    // while waiting for the run to start
+var RUN_POLL_MS     = 500;   // once it has
+var _lastBcGamemode = 0;
+var BC_GAMEMODE_FRESH_MS = 2000;
+var GAMEMODE_SRAM   = 'F50010';
+var GAMEPLAY_MODES  = [0x07, 0x09, 0x0B];
+var TRIFORCE_MODE   = 0x19;
+
+// Known non-gameplay ALTTP modes — startup, menus, cutscenes etc.
+// Seeing these means the game is loading/in menus, NOT garbage data
+var KNOWN_MODES = [
+  0x00, // Startup / boot
+  0x01, // File select init
+  0x02, // Copy / erase file select
+  0x03, // Intro / title sequence
+  0x04, // Title screen
+  0x05, // File select
+  0x06, // Agahnim intro cutscene
+  0x08, // Opening sequence
+  0x0A, // Special transition
+  0x0C, // Game over
+  0x0D, // Boss death
+  0x0E, // Item get screen
+  0x0F, // Attract mode / demo
+  0x10, // Credits
+  0x11, // Mode transition
+  0x12, // Mode transition
+  0x13, // Mode transition
+  0x14, // Inventory screen
+  0x15, // Mode transition
+  0x16, // Save and quit
+  0x17, // Pause screen
+  0x18, // Death sequence
+  0x19, // Triforce room (handled separately)
+  0x1A, // Victory
+  0x1B, // Game ending / select spawn
+];
+
+function setConnStatus(text, cls) {
+  connStatus.textContent = text;
+  connStatus.className   = cls;
+}
+
+function connect() {
+  if (_ws) { try { _ws.close(); } catch(e) {} _ws = null; }
+  setConnStatus('○ Connecting…', 'connecting');
+  try {
+    _ws = new WebSocket('ws://' + wsHost + ':' + wsPort);
+    _ws.binaryType = 'arraybuffer';
+    _ws.onopen  = function() {
+      setConnStatus('○ Connecting…', 'connecting');
+      _ws.send(JSON.stringify({ Opcode: 'DeviceList', Space: 'SNES' }));
+    };
+    _ws.onmessage = handleMessage;
+    _ws.onerror   = function() { setConnStatus('○ Error', 'disconnected'); scheduleReconnect(); };
+    _ws.onclose   = function() {
+      _deviceAttached = false;
+      _pendingRead    = false;
+      _validReadCount = 0;
+      _zeroReadCount  = 0;
+      _triforceCount  = 0;
+      clearInterval(_pollTimer);
+      _pollTimer = null;
+      setConnStatus('○ Disconnected', 'disconnected');
+      scheduleReconnect();
+    };
+  } catch(e) { scheduleReconnect(); }
+}
+
+function scheduleReconnect() {
+  clearTimeout(_reconnectTimer);
+  _reconnectTimer = setTimeout(connect, 5000);
+}
+
+// Core gameplay-mode state machine — runs identically whether the gm byte
+// arrives from our own WebSocket or from the item tracker's BroadcastChannel.
+// `viaBc` is true when the source is BC; we skip the device-relist fallback
+// in that case because the item tracker is already managing the connection.
+function processGamemode(gm, viaBc) {
+  if (GAMEPLAY_MODES.indexOf(gm) !== -1) {
+    // In-game — start timer
+    _triforceCount = 0;
+    _zeroReadCount = 0;
+    _validReadCount++;
+    if (_validReadCount === 1 && _pollTimer) {
+      // First confirmed gameplay read — slow our fallback poll
+      clearInterval(_pollTimer);
+      _pollTimer = setInterval(pollGamemode, RUN_POLL_MS);
+    }
+    startTimer();
+  } else if (gm === TRIFORCE_MODE) {
+    _triforceCount++;
+    _zeroReadCount = 0;
+    _validReadCount++;
+    if (_validReadCount === 1 && _pollTimer) {
+      clearInterval(_pollTimer);
+      _pollTimer = setInterval(pollGamemode, RUN_POLL_MS);
+    }
+    if (_triforceCount >= TRIFORCE_CONFIRM) finishTimer();
+  } else if (KNOWN_MODES.indexOf(gm) !== -1) {
+    // Known pre-game / menu mode — game is loading, just wait
+    _triforceCount = 0;
+    _zeroReadCount = 0;
+  } else {
+    // Truly unknown value — likely garbage from RetroArch before game loads.
+    // Skip the re-attach fallback when the data came from BC — the item
+    // tracker owns its own reconnect and will recover on its side.
+    _triforceCount = 0;
+    if (_validReadCount === 0 && !viaBc) {
+      _zeroReadCount++;
+      if (_zeroReadCount >= ZERO_READ_LIMIT) {
+        _zeroReadCount = 0;
+        _validReadCount = 0;
+        _triforceCount = 0;
+        _deviceAttached = false;
+        _pendingRead = false;
+        clearInterval(_pollTimer);
+        _pollTimer = null;
+        setConnStatus('○ Waiting for game…', 'connecting');
+        setTimeout(function() {
+          if (_ws && _ws.readyState === WebSocket.OPEN) {
+            _ws.send(JSON.stringify({ Opcode: 'DeviceList', Space: 'SNES' }));
+          }
+        }, 1000);
+      }
+    }
+  }
+  _lastGamemode = gm;
+}
+
+function handleMessage(evt) {
+  try {
+    if (evt.data instanceof ArrayBuffer) {
+      if (_pendingRead) {
+        _pendingRead = false;
+        processGamemode(new Uint8Array(evt.data)[0], false);
+      }
+      return;
+    }
+    var r = JSON.parse(evt.data);
+    if (r.Results && Array.isArray(r.Results)) {
+      if (!r.Results.length) {
+        setConnStatus('○ No device', 'disconnected');
+        setTimeout(function() {
+          _ws.send(JSON.stringify({ Opcode: 'DeviceList', Space: 'SNES' }));
+        }, 3000);
+        return;
+      }
+      _ws.send(JSON.stringify({ Opcode: 'Attach', Space: 'SNES', Operands: [r.Results[0]] }));
+      setConnStatus('● Connected', 'connected');
+      _deviceAttached = true;
+      _pendingRead    = false;  // clear any stuck pending read from previous session
+      _zeroReadCount  = 0;
+      _validReadCount = 0;
+      _triforceCount  = 0;
+      clearInterval(_pollTimer);
+      // Before the run starts, the poll interval IS the start accuracy: the
+      // timer can only begin on a read that sees gameplay, so a 250 ms poll is
+      // up to 250 ms late. 60 ms costs one extra 1-byte SNES read every other
+      // frame and gets that down to about a frame, near what LiveSplit's
+      // auto-splitter manages. It backs off to 500 ms once the run is going.
+      _pollTimer = setInterval(pollGamemode, START_POLL_MS);
+    }
+  } catch(e) {}
+}
+
+
+function pollGamemode() {
+  // The item tracker broadcasts game mode too, but only once a second — fine
+  // as a fallback, too coarse to start a run on. So we defer to it only when
+  // we have no device of our own to read; with our own WS attached we keep
+  // polling and start from whichever sees gameplay first.
+  if ((!_ws || _ws.readyState !== WebSocket.OPEN || !_deviceAttached) &&
+      Date.now() - _lastBcGamemode < BC_GAMEMODE_FRESH_MS) return;
+  if (!_ws || _ws.readyState !== WebSocket.OPEN || !_deviceAttached || _pendingRead) return;
+  _pendingRead = true;
+  _ws.send(JSON.stringify({ Opcode: 'GetAddress', Space: 'SNES', Operands: [GAMEMODE_SRAM, '01'] }));
+}
+
+// Listen for the item tracker's broadcasts. When a fresh gamemode arrives,
+// process it through the same state machine the WS path uses — and update
+// the freshness timestamp so pollGamemode stays quiet for the next 2s.
+try {
+  var _timerBc = new BroadcastChannel('alttp-tracker');
+  _timerBc.onmessage = function(e) {
+    if (!e.data) return;
+    if (e.data.type === 'gamemode' && typeof e.data.data === 'number') {
+      _lastBcGamemode = Date.now();
+      processGamemode(e.data.data, true);
+    }
+  };
+} catch (e) {}
+
+window.addEventListener('load', function() { connect(); });
+</script>
+</body>
+</html>

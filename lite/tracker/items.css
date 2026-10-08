@@ -1,0 +1,1129 @@
+html, body {
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+}
+
+body {
+    background-color: #000000;
+    font-family: Arial, sans-serif;
+    padding-top: 8px;
+    padding-bottom: 25px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.tracker-container {
+    width: fit-content;
+    margin: 0;
+    /* Equal left/right insets so the edge dungeons (POD on the left, the HC/EP
+       column on the right) clear the window frame symmetrically. offsetWidth
+       includes this padding, so the launch window-fit widens to match.
+       Halved from 9px (Chris, Aug 2026: "extra padding on the left side, that
+       can be cut in half, and make the spacing on the right match"); the other
+       half of that gap is SIDE_PAD in itemtracker.html's fitWindowToContent. */
+    padding: 0 4px;
+}
+
+.tracker-row {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    margin-bottom: 0;
+    gap: 0;
+    line-height: 0;
+}
+
+/* Item rows (rows 1-4: the three pendant-dungeon rows + the stats row).
+   All four are pinned to the SAME fixed height and top-aligned, so the
+   vertical gap between every item row is identical. 56px is the height of
+   a pendant dungeon box (EP/DP/TOH) — the tallest thing in these rows —
+   leaving an 8px gap below the 48px item icons. The stats box is taller
+   than 56px, so it still overflows downward into row 5, filling the space
+   around the smaller GT box. Row 5 (dungeons) is left auto-height. */
+.tracker-row.item-row {
+    align-items: flex-start;
+    height: 56px;
+}
+
+.item-slot {
+    position: relative;
+    width: 48px;
+    height: 48px;
+    background-color: transparent;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.item-slot:hover {
+    transform: scale(1.1);
+    /* transform creates a stacking context that traps the ::before tooltip;
+       lift the whole hovered slot above neighbouring slots (whose imgs are
+       z-index 2) so the tooltip always renders in the foreground. */
+    z-index: 10;
+}
+
+.item-slot img {
+    max-width: 48px;
+    max-height: 48px;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    position: relative;   /* sit above the .filled ::after fill */
+    z-index: 2;
+}
+
+/* Prize-count widgets on the new top line (crystal / red crystal / pendant /
+   green pendant): prize icon + "current/max". Sized so the four counts, heart,
+   and square check box (with its 8px side margins) span the eight-item width and
+   keep HC above EP: 4×72 (counts) + 40 (heart) + 8+40+8 (check) = 384px. The
+   check box's left edge then lands on the 8th item column below it. */
+.tracker-row.count-row { align-items: center; position: relative; }
+/* Divider under the crystal/pendant/heart stats, matching the uncleared dungeon
+   box border (1px #555). Spans the 384px count group so it lines up with the 8
+   item columns below (stops before the HC box). */
+.tracker-row.count-row::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 384px;
+    height: 1px;
+    background: #555;
+    pointer-events: none;
+}
+.prize-count-slot { width: 72px; gap: 3px; }
+.prize-count-slot img.prize-count-icon { max-width: 32px; max-height: 32px; }
+.prize-count-num {
+    position: static;
+    font-size: 13px; font-weight: bold;
+    color: #fff;
+    text-shadow: 0 0 3px #000, 1px 1px 2px #000, -1px -1px 2px #000;
+    font-family: Arial, sans-serif;
+    pointer-events: none;
+}
+
+/* Heart-piece widget: an SVG heart that fills 25% per piece (see setHeartFill). */
+.heart-count-slot {
+    width: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.heart-svg { width: 36px; height: 36px; overflow: visible; }
+.heart-svg .hcell { shape-rendering: crispEdges; }
+
+/* Square check-count box (mirrors the stats CHECKS value): 40×40 so it matches
+   the height of the row's other widgets instead of reading as a wide rectangle. */
+.check-count-box {
+    width: 40px;
+    height: 40px;
+    box-sizing: border-box;
+    /* Left/right margins total 16px so the four counts + heart + check span 384px
+       (HC stays above EP). 12px left / 4px right centres the 40px box over the 8th
+       item column (the sword) below it. */
+    margin: 0 4px 0 12px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    border: none;
+    border-radius: 6px;
+    padding: 3px 1px 4px;
+    background: transparent;
+}
+/* Render the fill exactly like the item slots: a rounded gradient at 0.7 opacity
+   (no border) so it reads as a soft item-style fill rather than a bordered box. */
+.check-count-box::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 6px;
+    background: linear-gradient(to bottom left, var(--item-fill-color, #2ecc71), var(--item-fill-color2, #5e3d99));
+    opacity: 0.7;
+    pointer-events: none;
+}
+.check-count-box > * { position: relative; z-index: 1; }
+.check-count-label {
+    font-size: 7px;
+    font-weight: bold;
+    letter-spacing: 0;
+    line-height: 1;
+    color: #fff;
+    text-shadow: 0 0 3px #000, 0 1px 1px #000;
+    font-family: Arial, sans-serif;
+}
+.check-count-value {
+    font-size: 14px;
+    font-weight: bold;
+    line-height: 1;
+    color: var(--check-num-color, #fff);
+    font-family: Arial, sans-serif;
+    text-shadow: none;
+}
+
+.item-slot.go-mode {
+    border: 2px solid currentColor;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: bold;
+    width: 28px;
+    height: 28px;
+    margin-left: 5px;
+    /* The slot is 32px tall incl. border; the row's other items are 48px and
+       sit at the top, so push GO down 8px to centre it within that 48px band. */
+    margin-top: 8px;
+    transition: background 0.15s, color 0.15s;
+}
+
+.medallion-label {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    font-size: 10px;
+    font-weight: bold;
+    color: #fff;
+    background-color: rgba(0, 0, 0, 0.0);
+    padding: 2px 4px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    pointer-events: none;
+    z-index: 3;   /* above the .filled ::after fill and the item image */
+}
+
+/* Dungeon slot styles */
+.dungeon-slot {
+    position: relative;
+    /* equalizeTopBoxes() sets an explicit width on HC/EP/DP/ToH so they and the
+       CT group all match the widest of them; that measurement is a border-box
+       width, so the sizing has to agree. */
+    box-sizing: border-box;
+    width: 52px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    cursor: pointer;
+    gap: 1px;
+    background-color: transparent;
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 2px 1px;
+    transition: border-color 0.3s;
+}
+
+/* "Dungeon Box" toggle off — strip the default container. Placed before the
+   completion rules so the chests/complete tints still override it. */
+.dungeon-slot.no-box {
+    border-color: transparent;
+    background-color: transparent;
+}
+
+/* Completion tints. Colours come from --chests-color / --complete-color
+   (set by the settings popup). Only applied when html has .dfill-on, so the
+   "Dungeon Fill" toggle can suppress them entirely. */
+html.dfill-on .dungeon-slot.completed-items {
+    border-color: var(--chests-color, #5a8eff);
+    border-width: 1px;
+    background-color: color-mix(in srgb, var(--chests-color, #5a8eff) 30%, transparent);
+}
+
+html.dfill-on .dungeon-slot.completed-full {
+    border-color: var(--complete-color, #4dff88);
+    border-width: 1px;
+    background-color: color-mix(in srgb, var(--complete-color, #4dff88) 30%, transparent);
+}
+
+/* Boss defeated (prize obtained) but items still remain — green outline
+   only, no background tint. Visually distinct from completed-full so the
+   player can tell the dungeon still has chests to finish. */
+html.dfill-on .dungeon-slot.prize-obtained {
+    border-color: var(--complete-color, #4dff88);
+    border-width: 1px;
+}
+
+.dungeon-slot.pendant-dungeon {
+    flex-direction: row;
+    width: auto;
+    gap: 2px;
+    padding: 1px;            /* tighter than the base 2px 1px — keeps the box at 56px */
+}
+
+/* Hyrule Castle is a pendant-style box but has no prize image or boss circle.
+   Its items column (16px) and count column (the "0/x" text) are identical to
+   EP/DP/ToH — the ONLY width difference is the left content column, where EP
+   shows a 22px prize image and HC shows just its label. Reserving that same
+   22px in HC's content column makes HC exactly as wide as EP (right edges line
+   up) without touching EP or the window width. No min-height, so HC stays short
+   (its 2-icon column ≈ 38px) and row 1 is shorter than the taller item rows. */
+.dungeon-slot[data-dungeon-key="hc"] .dungeon-content {
+    min-width: 22px;
+    align-items: center;
+}
+
+/* .gt-bottom is gone (Aug 2026). It dropped the GT box to the bottom of its row
+   in Key Sanity / MCK, to clear a stats box that overflowed further down when it
+   gained the CT counter. The CT counters now sit in their own compact bordered
+   group and no longer push that far, and Chris asked for GT back in line. */
+
+.dungeon-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+}
+
+.dungeon-top-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: 2px;
+}
+
+.dungeon-top-row .dungeon-label {
+    flex: 1;
+    text-align: center;
+    margin-bottom: 0;
+}
+
+.dungeon-label {
+    font-size: 10px;
+    font-weight: bold;
+    color: #fff;
+    text-align: center;
+    height: 12px;
+    margin-bottom: 1px;
+    line-height: 12px;
+}
+
+.prize-img {
+    width: 22px;
+    height: 22px;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    margin-bottom: 1px;
+}
+
+.dungeon-items {
+    display: flex;
+    flex-direction: row;
+    gap: 2px;
+    align-items: center;
+    justify-content: center;
+}
+
+.dungeon-slot.pendant-dungeon .dungeon-items {
+    flex-direction: column;
+}
+
+.bigkey-img, .compass-img, .map-img {
+    width: 16px;
+    height: 16px;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+}
+
+.dungeon-counts {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 4px;
+    align-items: center;
+}
+
+.dungeon-counts-pendant {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    align-items: center;
+}
+
+.count-item {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.count-icon {
+    width: 12px;
+    height: 12px;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+}
+
+.key-count, .item-count {
+    font-size: 11px;
+    color: #fff;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+    user-select: none;
+}
+
+/* ── Boss circle ── */
+.boss-circle {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 1px solid #888;            /* neutral — no boss selected (boss0) */
+    background: #1a1a1a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    transition: border-color 0.2s;
+}
+/* Requirement not yet met for the selected boss */
+.boss-circle.boss-need { border-color: #e74c3c; }
+/* Requirement met, or boss has no item requirement */
+.boss-circle.boss-ok   { border-color: #2ecc71; }
+/* Crystal/other dungeons: circle sits underneath, give it a little gap */
+.dungeon-slot > .boss-circle { margin-top: 3px; }
+/* Pendant dungeons: circle sits in the counts column, under the chest count */
+.dungeon-counts-pendant > .boss-circle { margin-top: 2px; }
+
+/* Show Boss = off: the circles are hidden outright. This is a SEPARATE class
+   from no-boss-shuffle below — that one only locks the circles, it does not
+   hide them, and reusing it was why unticking "Show Boss" appeared to do
+   nothing. */
+html.hide-boss .boss-circle { display: none; }
+
+/* Boss Shuffle = No: bosses are vanilla fixed assignments. Circles stay visible
+   but are non-interactive (pointer-events off, no hover highlight). */
+html.no-boss-shuffle .boss-circle {
+    cursor: default;
+    pointer-events: none;
+}
+html.no-boss-shuffle .boss-circle:hover {
+    border-color: #555;
+    background: transparent;
+}
+
+.boss-img {
+    width: 16px;                        /* intentionally smaller than the 24px circle */
+    height: 16px;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    pointer-events: none;
+    transition: filter 0.2s, opacity 0.2s;
+}
+
+/* Boss defeated (dungeon prize obtained): grey the boss image so the slot
+   reads as "done" at a glance. */
+.boss-circle.boss-defeated .boss-img {
+    filter: grayscale(1);
+    opacity: 0.4;
+}
+
+/* ── Boss selection popup ── */
+#boss-popup {
+    position: fixed;
+    background: rgba(20, 20, 20, 0.97);
+    border: 1px solid #555;
+    border-radius: 6px;
+    padding: 6px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
+    z-index: 10000;
+    display: none;
+}
+#boss-popup.open { display: block; }
+.boss-popup-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 34px);
+    gap: 3px;
+}
+.boss-popup-item {
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #1a1a1a;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.1s, border-color 0.1s;
+}
+.boss-popup-item:hover { background: #2a3a4a; border-color: #7ab8f5; }
+.boss-popup-item img {
+    width: 26px;
+    height: 26px;
+    image-rendering: pixelated;
+}
+.boss-popup-clear {
+    grid-column: 1 / -1;
+    margin-top: 3px;
+    font-size: 11px;
+    color: #ff8c8c;
+    background: transparent;
+    border: 1px solid #5a2a2a;
+    border-radius: 3px;
+    padding: 2px 0;
+    cursor: pointer;
+    font-family: Arial, sans-serif;
+}
+.boss-popup-clear:hover { background: #3a1414; color: #fff; }
+
+/* Tooltip for item names */
+.item-slot::before {
+    content: attr(data-item-name);
+    position: absolute;
+    /* Sit in the gap between this row and the one above (rows are 56px, items
+       48px, so ~8px of gap). The z-index lift on :hover keeps it readable. */
+    top: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(0, 0, 0, 0.9);
+    color: white;
+    padding: 5px 10px;
+    border-radius: 4px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+    font-size: 12px;
+    z-index: 1000;
+}
+
+.item-slot:hover::before {
+    opacity: 1;
+}
+
+/* Connection status indicator */
+/* ── Bottom bar size buttons ────────────────────────────────────────────────── */
+.size-group {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex-shrink: 0;
+}
+
+.size-btn {
+    width: 12px;
+    height: 12px;
+    background: #1a1a1a;
+    color: #888;
+    border: 1px solid #333;
+    border-radius: 3px;
+    font-size: 8px;
+    font-family: Arial, sans-serif;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    padding: 0;
+    flex-shrink: 0;
+}
+.size-btn:hover  { background: #333; color: #fff; }
+.size-btn:active { transform: scale(0.9); }
+
+/* ── Bottom bar: connection status + reconnect button ───────────────────────── */
+.tracker-bottom-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px 6px;
+    background: #0a0a0a;
+    border-top: 1px solid #1a1a1a;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 18px;
+    box-sizing: border-box;
+    z-index: 100;
+    gap: 4px;
+}
+
+.connection-status {
+    font-size: 8px;
+    color: #95a5a6;
+    flex: 1;
+    text-align: center;
+}
+
+.mode-label {
+    font-size: 7px;
+    font-weight: bold;
+    color: #666;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+    margin-right: 4px;
+}
+
+.race-label {
+    font-size: 7px;
+    font-weight: bold;
+    color: #ff4444;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+    margin-right: 4px;
+}
+.race-label:empty { display: none; }
+
+.newgame-btn {
+    height: 13px;
+    font-size: 8px;
+    line-height: 13px;
+    text-align: center;
+    padding: 0 5px;
+    background: transparent;
+    color: #c0392b;
+    border: 1px solid #7b241c;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color 0.2s, background-color 0.2s;
+    font-family: Arial, sans-serif;
+    flex-shrink: 0;
+    margin-left: 3px;
+    white-space: nowrap;
+}
+
+.newgame-btn:hover {
+    background-color: #7b241c;
+    color: #ffffff;
+}
+
+.newgame-btn:active {
+    transform: scale(0.9);
+}
+
+.reconnect-btn {
+    width: 13px;
+    height: 13px;
+    font-size: 11px;
+    line-height: 13px;
+    text-align: center;
+    padding: 0;
+    background: transparent;
+    color: #7ab8f5;
+    border: 1px solid #3a6ea8;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color 0.2s, background-color 0.2s;
+    font-family: Arial, sans-serif;
+    flex-shrink: 0;
+}
+
+.reconnect-btn:hover {
+    background-color: #2a5a9c;
+    color: #ffffff;
+}
+
+.reconnect-btn:active {
+    transform: scale(0.9);
+}
+
+.reconnect-btn.reconnecting {
+    color: #f39c12;
+    border-color: #f39c12;
+    cursor: default;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* ── Check and Death counter boxes (in GO row, column 9) ───────────────────── */
+.stats-slot {
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    /* Tight on purpose. With FLUTES back alongside the CT group (Aug 2026) this
+       column is five rows in Key Sanity, and it has to finish above the GT box
+       in the row below — .gt-bottom, which used to shove GT down out of the
+       way, is gone at Chris's request. Every px here is one px of clearance. */
+    gap: 2px;
+    justify-content: center;
+    /* No top padding, 3px on the LEFT only. The 3px is what lines the CT group
+       up with the dungeon boxes above (this slot sits in its own row, so its
+       left edge lands 3px short of theirs). There is deliberately none on the
+       right: the slot would then be the widest thing in the tracker and push
+       the container 3px past the boxes, which is exactly the uneven window
+       margin Chris spotted — the container is centred, but its content was not
+       symmetric inside it. */
+    padding: 0 0 0 3px;
+    margin-left: 6px;
+    align-self: flex-start;
+    width: 0;
+    min-width: fit-content;
+    /* The stats box is taller than its 48px row, so it overflows downward
+       into row 5. position/z-index keeps it painted on top of the dungeon
+       row (which comes later in the DOM) instead of being covered by it. */
+    position: relative;
+    z-index: 2;
+}
+
+.stat-box {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 5px 8px;
+    border: none;
+    background: transparent;
+    box-sizing: border-box;
+    width: 100%;
+}
+
+.stat-label {
+    font-size: 8px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    opacity: 0.8;
+    white-space: nowrap;
+}
+
+.stat-value {
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.stat-check {
+    color: #7ddf7d;
+}
+
+/* DEATHS / BONKS / REVIVALS / FLUTES keep .stat-box's own layout: label left,
+   value right. Chris tried right-aligned rows and came back to this one — "I
+   liked how the stats were justified left".
+
+   equalizeTopBoxes() sizes them to their own content (so the value never drifts
+   away from its label) and left-justifies them in the column; this margin keeps
+   the labels off the crystal dungeon boxes that now run right up to the
+   column's left edge. Keep it in step with the `inset` in that function. */
+.stat-death,
+.stat-bonk,
+.stat-revival,
+.stat-flute {
+    /* Was 8px, and .stat-box adds another 8px of padding on the left, which put
+       the labels ~19px in from the column edge — the gap Chris kept seeing in
+       front of them. 2px here plus the 3px override below leaves the labels
+       just clear of the crystal boxes. Keep in step with `inset` in
+       equalizeTopBoxes(). */
+    margin-left: 2px;
+    padding-left: 3px;
+}
+
+.stat-death {
+    color: #ff0000;
+}
+
+.stat-bonk {
+    color: #ffa500;
+}
+
+.stat-heartpiece {
+    color: #95a5a6;
+}
+
+/* FLUTES reuses the old HEARTS colour. It shares a slot with the CT item count:
+   the flute box hides in the drop modes, which is the only place the CT item
+   count shows (Chris, Aug 2026). */
+.stat-flute {
+    color: #95a5a6;
+}
+
+.stat-revival {
+    color: #9b59b6;
+}
+
+/* The two CT counters sit in their own bordered group so a Castle Tower count
+   is visibly not one of the DEATHS / BONKS / FLUTES stats stacked beside it.
+   updateCtGroup() hides the border whenever neither counter is showing. */
+.ct-group {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid rgba(255,255,255,0.40);
+    border-radius: 4px;
+    /* 5px on the left puts the CT label on the same x as EP's and DP's. */
+    padding: 2px 4px 1px 5px;
+}
+
+/* One label for the pair, on the left like a pendant dungeon's, and wearing
+   .dungeon-label so it is the same font and weight as EP / DP / ToH. */
+.ct-group-label {
+    flex: 0 0 auto;
+    margin-bottom: 0;
+}
+
+.ct-group-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* The rows' own labels would repeat it; the key and chest icons say which is
+   which. */
+.ct-group .stat-label { display: none; }
+
+/* CT's counts sit right next to the label rather than out at the right edge.
+   The dungeon boxes push their counts across because they have map / compass /
+   big key icons in between; CT has none of those, so there is nothing to line
+   up with and the slack belongs at the far right (Chris, Aug 2026: "The CT key
+   doesn't need to line up with the other keys... the left part of the box was
+   close to the numbers"). */
+.ct-group .stat-ctkey,
+.ct-group .stat-ctitem {
+    justify-content: flex-start;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+.stat-ctkey {
+    color: #fff;
+    gap: 4px;
+    justify-content: flex-end;
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-top: -1px;
+    margin-bottom: -3px;
+}
+
+.stat-ctkey .stat-label {
+    margin-right: 2px;
+    opacity: 1;
+    color: #e8d48b;
+}
+
+.stat-ctkey .stat-value {
+    font-size: 11px;
+    color: #fff;
+}
+
+/* CT item count, directly under the CT key count. Same shape as .stat-ctkey so
+   the two read as one pair — without these rules the box renders with the
+   default .stat-box spacing and its label is lost against the taller value.
+   The label is tinted like a chest rather than a key so the two rows are
+   tellable apart at a glance. */
+.stat-ctitem {
+    color: #fff;
+    gap: 4px;
+    justify-content: flex-end;
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-top: -3px;
+    margin-bottom: -1px;
+}
+
+.stat-ctitem .stat-label {
+    margin-right: 2px;
+    opacity: 1;
+    color: #8fb8e8;
+}
+
+.stat-ctitem .stat-value {
+    font-size: 11px;
+    color: #fff;
+}
+
+.stat-icon {
+    width: 12px;
+    height: 12px;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+}
+
+
+/* ── Light background themes ─────────────────────────────────────────────────
+   Applied via data-bg attribute on <html> element                            */
+
+/* White background */
+[data-bg="white"] body {
+    background-color: #ffffff;
+}
+
+/* Grey background */
+[data-bg="grey"] body {
+    background-color: #2a2a2a;
+}
+
+/* Transparent background - requires Electron transparent window */
+html[data-bg="transparent"],
+html[data-bg="transparent"] body,
+html[data-bg="transparent"] .tracker-container,
+html[data-bg="transparent"] .tracker-outer {
+    background: transparent !important;
+    background-color: transparent !important;
+}
+html[data-bg="transparent"] body {
+    padding-top: 30px;   /* clear traffic lights (macOS) / titlebar overlay (Windows) */
+}
+
+/* Drag strip at top — allows window dragging (macOS: full width; Windows: leaves room for caption buttons) */
+html[data-bg="transparent"] body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 140px;   /* leave ~140px on right for Windows caption buttons */
+    height: 30px;
+    -webkit-app-region: drag;
+    z-index: 9999;
+}
+html[data-bg="transparent"] .tracker-bottom-bar {
+    background: rgba(0,0,0,0.6) !important;
+    border-top-color: rgba(255,255,255,0.2) !important;
+    -webkit-app-region: drag;
+    cursor: move;
+    position: fixed;          /* ensure it's in the drag region */
+}
+html[data-bg="transparent"] .tracker-bottom-bar * {
+    -webkit-app-region: no-drag;
+    cursor: default;
+}
+html[data-bg="transparent"] .dungeon-slot {
+    background: rgba(0,0,0,0.2) !important;
+    border-color: rgba(255,255,255,0.25) !important;
+}
+html.dfill-on[data-bg="transparent"] .dungeon-slot.completed-items {
+    border-color: var(--chests-color, #5a8eff) !important;
+    border-width: 2px !important;
+}
+html.dfill-on[data-bg="transparent"] .dungeon-slot.completed-full {
+    border-color: var(--complete-color, #4dff88) !important;
+    border-width: 2px !important;
+}
+html.dfill-on[data-bg="transparent"] .dungeon-slot.prize-obtained {
+    border-color: var(--complete-color, #4dff88) !important;
+    border-width: 2px !important;
+}
+html[data-bg="transparent"] .item-slot:not(.go-mode) {
+    background: transparent !important;
+}
+html[data-bg="transparent"] .item-slot::before {
+    background-color: rgba(0,0,0,0.85) !important;
+}
+
+/* Light text fixes for white and grey backgrounds */
+[data-bg="white"] .dungeon-label,
+[data-bg="white"] .key-count,
+[data-bg="white"] .item-count,
+[data-bg="white"] .medallion-label,
+[data-bg="white"] .connection-status,
+[data-bg="white"] .stat-label,
+[data-bg="white"] .stat-value {
+    color: #111;
+}
+
+[data-bg="white"] .dungeon-slot {
+    border-color: #999;
+    background-color: rgba(0,0,0,0.05);
+}
+html.dfill-on[data-bg="white"] .dungeon-slot.completed-items {
+    border-color: var(--chests-color, #5a8eff) !important;
+    border-width: 2px !important;
+}
+html.dfill-on[data-bg="white"] .dungeon-slot.completed-full {
+    border-color: var(--complete-color, #4dff88) !important;
+    border-width: 2px !important;
+}
+html.dfill-on[data-bg="white"] .dungeon-slot.prize-obtained {
+    border-color: var(--complete-color, #4dff88) !important;
+    border-width: 2px !important;
+}
+
+[data-bg="white"] .stat-check { color: #1a7a1a; }
+[data-bg="white"] .stat-death { color: #cc2200; }
+[data-bg="white"] .stat-bonk  { color: #cc5500; }
+[data-bg="white"] .stat-heartpiece { color: #6c3483; }
+[data-bg="white"] .stat-flute      { color: #6c3483; }
+[data-bg="white"] .ct-group        { border-color: rgba(0,0,0,0.40); }
+[data-bg="white"] .stat-ctkey  .stat-label { color: #8a6d1f; }
+[data-bg="white"] .stat-ctitem .stat-label { color: #1f4e8a; }
+[data-bg="white"] .stat-revival    { color: #117a65; }
+
+[data-bg="white"] .tracker-bottom-bar {
+    background: #e0e0e0;
+    border-top-color: #bbb;
+}
+[data-bg="white"] .connection-status { color: #444; }
+[data-bg="white"] .reconnect-btn { color: #1a5a9c; border-color: #1a5a9c; background: transparent; }
+[data-bg="white"] .size-btn { background: #ddd; color: #333; border-color: #aaa; }
+[data-bg="white"] .size-btn:hover { background: #bbb; color: #000; }
+[data-bg="white"] .item-slot.go-mode { color: #222; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Settings customization — Main Background / Item Background / Dungeon
+   Background. Ported from the Broadcast View so the Item Tracker offers the
+   same look options.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Image background mode ── */
+[data-bg="image"] body {
+    background-color: #000 !important;
+    background-image: var(--bg-image, none) !important;
+    background-size: cover !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
+}
+
+/* ── Item Background fill ──
+   ::before is already used for the item-name tooltip, so the fill uses
+   ::after. The item image / medallion label sit above it via z-index. */
+.item-slot:not(.go-mode)::after,
+.bottle-grid::after {
+    content: '';
+    position: absolute;
+    inset: 4px;
+    border-radius: 6px;
+    background: linear-gradient(to bottom left, var(--item-fill-color, #2ecc71), var(--item-fill-color2, #5e3d99));
+    opacity: 0;
+    z-index: 1;
+    pointer-events: none;
+}
+.bottle-grid { position: relative; }
+.bottle-grid::after { inset: 2px; }
+/* Bottle cells sit above the fill ::after */
+.bottle-grid > div { position: relative; z-index: 2; }
+.item-slot.filled:not(.go-mode)::after,
+.bottle-grid.filled::after { opacity: 0.7; }
+
+/* Fill effects — applied on the transition into the filled state.
+   none -> fx-edges (radial mask closes inward), falling -> fx-falling,
+   starburst -> fx-fade (uniform fade-in). */
+.item-slot.filled.fx-falling::after,
+.bottle-grid.filled.fx-falling::after { animation: itf-falling 0.6s ease-out; }
+.item-slot.filled.fx-fade::after,
+.bottle-grid.filled.fx-fade::after    { animation: itf-fade    0.9s ease-out; }
+.item-slot.filled.fx-edges::after,
+.bottle-grid.filled.fx-edges::after   { animation: itf-edges   1.0s ease-in;  }
+
+@keyframes itf-falling {
+    from { transform: translateY(-100%); opacity: 0.7; }
+    to   { transform: translateY(0);     opacity: 0.7; }
+}
+@keyframes itf-fade {
+    from { opacity: 0; }
+    to   { opacity: 0.7; }
+}
+@property --itf-edges-reveal {
+    syntax: '<percentage>';
+    initial-value: 0%;
+    inherits: false;
+}
+.item-slot.filled.fx-edges::after,
+.bottle-grid.filled.fx-edges::after {
+    -webkit-mask-image: radial-gradient(circle at 50% 50%,
+        transparent calc(var(--itf-edges-reveal, 0%) - 0.5%),
+        #000        var(--itf-edges-reveal, 0%));
+            mask-image: radial-gradient(circle at 50% 50%,
+        transparent calc(var(--itf-edges-reveal, 0%) - 0.5%),
+        #000        var(--itf-edges-reveal, 0%));
+}
+@keyframes itf-edges {
+    from { --itf-edges-reveal: 80%; opacity: 0.7; }
+    to   { --itf-edges-reveal: 0%;  opacity: 0.7; }
+}
+
+/* ── Settings button in the bottom bar ── */
+.item-settings-btn {
+    background: #1a1a1a;
+    color: #ccc;
+    border: 1px solid #444;
+    border-radius: 3px;
+    padding: 0 6px;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.item-settings-btn:hover { border-color: #4dff88; color: #fff; }
+
+/* ── Settings modal ── */
+#item-settings-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 10000;
+}
+#item-settings-overlay.hidden { display: none; }
+.its-modal {
+    background: #1a1a1a;
+    border: 1px solid #444;
+    border-radius: 6px;
+    width: 320px; max-width: 92%;
+    max-height: 90%;
+    overflow-y: auto;
+    font-family: Arial, sans-serif; color: #ddd;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+}
+.its-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; border-bottom: 1px solid #333;
+}
+.its-header h3 { font-size: 13px; color: #fff; margin: 0; }
+.its-close {
+    background: transparent; border: none; color: #888; font-size: 18px;
+    cursor: pointer; line-height: 1; padding: 0 4px;
+}
+.its-close:hover { color: #fff; }
+.its-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 12px; }
+.its-section { display: flex; flex-direction: column; gap: 6px; }
+.its-section > h4 {
+    font-size: 11px; color: #4dff88; text-transform: uppercase;
+    letter-spacing: 0.5px; font-weight: bold; margin: 0;
+}
+.its-row { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.its-row label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.its-row input[type="radio"], .its-row input[type="checkbox"] { margin: 0; cursor: pointer; }
+.its-radios { display: flex; flex-wrap: wrap; gap: 8px; }
+.its-radios label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-size: 11px; }
+.its-radios input { margin: 0; cursor: pointer; }
+.its-sub {
+    margin-left: 18px; padding-left: 10px;
+    border-left: 1px solid #333;
+    display: flex; flex-direction: column; gap: 6px;
+}
+.its-sub.disabled { opacity: 0.4; pointer-events: none; }
+.its-sub-label {
+    font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.its-color-picker {
+    width: 28px; height: 18px; padding: 0; border: 1px solid #444;
+    background: transparent; cursor: pointer; vertical-align: middle;
+}
+.its-file-btn {
+    font-size: 10px; color: #ccc; background: #1a1a1a;
+    border: 1px solid #444; border-radius: 3px; padding: 2px 8px;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
+}
+.its-file-btn:hover { border-color: #4dff88; color: #fff; }
+
+/* You-are-here dot: the dungeon Link is in right now ($7E040C). */
+/* Absolutely placed just right of the text, so the narrow pendant slots don't
+   wrap it onto a hidden second line. */
+/* Only with the setting on and Race Mode off (html.show-here-dot). */
+.show-here-dot .dng-here .dungeon-label { position: relative; }
+.show-here-dot .dng-here .dungeon-label::after {
+  content: ''; position: absolute; top: 50%; margin-top: -3px; margin-left: 1px;
+  width: 6px; height: 6px; z-index: 3;   /* over the map/compass icons beside a pendant label */
+  border-radius: 50%; background: #4dff88; box-shadow: 0 0 4px #4dff88;
+}

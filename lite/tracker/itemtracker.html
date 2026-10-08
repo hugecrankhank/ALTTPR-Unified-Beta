@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="../bridge/sni-shim.js"></script> <!-- unified-app: routes SNI WebSocket to built-in emulator -->
+<meta charset="UTF-8">
+<title>ALTTP Item Tracker</title>
+<meta http-equiv="Content-Security-Policy" content="connect-src * ws://*:*;">
+<link rel="stylesheet" href="items.css?v=1120b">
+</head>
+<body>
+
+<div class="tracker-container"></div>
+
+<div class="tracker-bottom-bar">
+  <div class="size-group">
+    <button class="size-btn" onclick="changeTrackerScale(-0.05)">&#8722;</button>
+    <button class="size-btn" onclick="changeTrackerScale(0.05)">+</button>
+    <button class="item-settings-btn" id="item-settings-btn" title="Settings" onclick="openItemSettings()">⚙</button>
+<button class="size-btn" id="item-broadcast-btn" title="Open Broadcast View" onclick="(function(){ var bg=localStorage.getItem('alttp-tracker-bg')||'black'; if(window.electronAPI&&window.electronAPI.launch){ window.electronAPI.launch({which:'broadcast',trackerBg:bg}); } else { window.open('broadcast.html?bg='+bg,'alttp-broadcast','width=500,height=230,resizable=yes'); } })()" style="background:#1a2e4a;color:#7ab8f5;border:1px solid #2a4e7a;padding:0 6px;">📡</button>
+  </div>
+  <div class="connection-status" id="item-conn-status">○ Disconnected</div>
+  <span class="race-label" id="item-race-label"></span>
+  <span class="mode-label" id="item-mode-label"></span>
+  <button class="reconnect-btn" id="item-reconnect-btn" title="Reconnect to QUsb2Snes" onclick="manualReconnect()">↻</button>
+  <button class="newgame-btn" id="item-newgame-btn" title="Reset to new game" onclick="resetItemTracker()">⟳ New Game</button>
+</div>
+
+<div id="item-settings-overlay" class="hidden" onclick="if(event.target===this)closeItemSettings()">
+  <div class="its-modal">
+    <div class="its-header">
+      <h3>Tracker Settings</h3>
+      <button class="its-close" onclick="closeItemSettings()">×</button>
+    </div>
+    <div class="its-body">
+      <div class="its-section">
+        <h4>Main Background</h4>
+        <div class="its-radios">
+          <label><input type="radio" name="its-bg" value="black"> Black</label>
+          <label><input type="radio" name="its-bg" value="grey"> Grey</label>
+          <label><input type="radio" name="its-bg" value="white"> White</label>
+          <label><input type="radio" name="its-bg" value="transparent"> Transparent</label>
+          <label><input type="radio" name="its-bg" value="image"> Image</label>
+        </div>
+        <div class="its-row">
+          <label class="its-file-btn">
+            Choose Image...
+            <input type="file" accept="image/*" id="item-bg-image-file" style="display:none;">
+          </label>
+          <button type="button" class="its-file-btn" id="item-bg-image-clear">Clear</button>
+          <span class="its-sub-label" id="item-bg-image-status">No image</span>
+        </div>
+      </div>
+
+      <div class="its-section">
+        <h4>Item Background</h4>
+        <div class="its-row">
+          <label><input type="checkbox" id="item-opt-fill-enabled"> Item Fill</label>
+        </div>
+        <div class="its-sub" id="item-fill-sub">
+          <div class="its-sub-label">Fill Color (top-right)</div>
+          <div class="its-radios">
+            <label><input type="radio" name="its-fill-color" value="green"> Green</label>
+            <label><input type="radio" name="its-fill-color" value="blue"> Blue</label>
+            <label><input type="radio" name="its-fill-color" value="purple"> Purple</label>
+            <label><input type="radio" name="its-fill-color" value="custom"> Custom</label>
+            <input type="color" class="its-color-picker" id="item-opt-fill-custom" value="#00aa00">
+          </div>
+          <div class="its-sub-label">Second Color (bottom-left)</div>
+          <div class="its-radios">
+            <label><input type="radio" name="its-fill-color-2" value="green"> Green</label>
+            <label><input type="radio" name="its-fill-color-2" value="blue"> Blue</label>
+            <label><input type="radio" name="its-fill-color-2" value="purple"> Purple</label>
+            <label><input type="radio" name="its-fill-color-2" value="custom"> Custom</label>
+            <input type="color" class="its-color-picker" id="item-opt-fill-custom-2" value="#b675ff">
+          </div>
+          <div class="its-sub-label">Fill Effect</div>
+          <div class="its-radios">
+            <label><input type="radio" name="its-fill-effect" value="none"> No Effects</label>
+            <label><input type="radio" name="its-fill-effect" value="falling"> Falling</label>
+            <label><input type="radio" name="its-fill-effect" value="starburst"> Starburst</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="its-section">
+        <h4>New Game Hotkey</h4>
+        <div class="its-row">
+          <label><input type="checkbox" id="item-hotkey-enabled"> Enable global hotkey</label>
+        </div>
+        <div class="its-sub" id="item-hotkey-sub">
+          <div class="its-sub-label">Press the key combination to assign it. Off on relaunch.</div>
+          <div class="its-row" style="gap:8px;align-items:center;">
+            <div id="item-hotkey-display" style="
+              padding:4px 10px; border-radius:4px; border:1px solid #555;
+              background:#1a1a1a; color:#fff; font-family:monospace; font-size:13px;
+              min-width:80px; text-align:center; cursor:pointer; user-select:none;
+            ">\</div>
+            <button type="button" class="its-file-btn" id="item-hotkey-record-btn">Record Key</button>
+            <button type="button" class="its-file-btn" id="item-hotkey-reset-btn">Reset</button>
+          </div>
+          <div id="item-hotkey-status" style="font-size:10px;color:#888;margin-top:4px;"></div>
+        </div>
+      </div>
+
+      <div class="its-section">
+        <h4>Dungeon Background</h4>
+        <div class="its-row">
+          <label><input type="checkbox" id="item-opt-dungeon-fill"> Dungeon Fill</label>
+          <label><input type="checkbox" id="item-opt-dungeon-box"> Dungeon Box</label>
+          <label><input type="checkbox" id="item-opt-show-boss"> Show Boss</label>
+        </div>
+        <div class="its-row" style="margin-top:6px;">
+          <label><input type="checkbox" id="item-opt-dungeon-chests"> Show Dungeon Chests</label>
+          <label id="item-opt-here-dot-lbl"><input type="checkbox" id="item-opt-here-dot"> You Are Here Dot</label>
+        </div>
+        <div class="its-sub-label">All Chests Collected</div>
+        <div class="its-radios">
+          <label><input type="radio" name="its-chests-color" value="blue"> Blue</label>
+          <label><input type="radio" name="its-chests-color" value="green"> Green</label>
+          <label><input type="radio" name="its-chests-color" value="purple"> Purple</label>
+          <label><input type="radio" name="its-chests-color" value="yellow"> Yellow</label>
+          <label><input type="radio" name="its-chests-color" value="custom"> Custom</label>
+          <input type="color" class="its-color-picker" id="item-opt-chests-custom" value="#5a8eff">
+        </div>
+        <div class="its-sub-label">Dungeon Complete</div>
+        <div class="its-radios">
+          <label><input type="radio" name="its-complete-color" value="green"> Green</label>
+          <label><input type="radio" name="its-complete-color" value="blue"> Blue</label>
+          <label><input type="radio" name="its-complete-color" value="purple"> Purple</label>
+          <label><input type="radio" name="its-complete-color" value="yellow"> Yellow</label>
+          <label><input type="radio" name="its-complete-color" value="custom"> Custom</label>
+          <input type="color" class="its-color-picker" id="item-opt-complete-custom" value="#4dff88">
+        </div>
+        <div class="its-sub-label">Default Dungeon Prize</div>
+        <div class="its-radios">
+          <label><input type="radio" name="its-default-prize" value="crystal"> Crystal</label>
+          <label><input type="radio" name="its-default-prize" value="unknown"> Unknown (?)</label>
+        </div>
+      </div>
+
+      <div class="its-section">
+        <h4>Checks Number</h4>
+        <div class="its-radios">
+          <label><input type="radio" name="its-checks-color" value="white"> White</label>
+          <label><input type="radio" name="its-checks-color" value="black"> Black</label>
+          <label><input type="radio" name="its-checks-color" value="grey"> Grey</label>
+          <label><input type="radio" name="its-checks-color" value="custom"> Custom</label>
+          <input type="color" class="its-color-picker" id="item-opt-checks-custom" value="#ffffff">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/dngpanel.js?v=1127n"></script>
+<script>
+// The pot / enemy-drop table is only read by the dungeon card's rollup, and
+// only in the two shuffle modes that use it — fetch it on demand rather than
+// carrying 57KB into every session. map.html does the same.
+window.ensurePotLocations = function() {
+  if (window.POT_LOCATIONS || window._potLoading) return;
+  window._potLoading = true;
+  var sc = document.createElement('script');
+  sc.src = 'js/potlocations.js?v=1122l';
+  sc.onload = function() { if (window.refreshDungeonPanel) window.refreshDungeonPanel(); };
+  sc.onerror = function() { console.warn('pot locations could not be loaded'); };
+  document.head.appendChild(sc);
+};
+(function() {
+  var p = new URLSearchParams(location.search);
+  var pottery = p.get('pottery') || localStorage.getItem('alttp-pottery') || 'none';
+  var drops   = p.get('enemydrops') || localStorage.getItem('alttp-enemy-drops') || 'no';
+  if (pottery !== 'none' || drops === 'yes') window.ensurePotLocations();
+  // A setting changed in the map window arrives here as a storage event.
+  window.addEventListener('storage', function(ev) {
+    if (ev.key === 'alttp-pottery' || ev.key === 'alttp-enemy-drops') {
+      if (ev.newValue && ev.newValue !== 'none' && ev.newValue !== 'no') window.ensurePotLocations();
+    }
+  });
+})();
+</script>
+<script src="js/items.js?v=1126r"></script>
+<script>
+// ── Dungeon hover panel (js/dngpanel.js, shared with the map) ─────────────────
+// The item tracker knows the real dungeon state — counts, map/compass/big key,
+// completion, and which boss was picked — so it supplies all of that. It has no
+// logic engine, so there is no Status row here; the map keeps that.
+// Availability comes from the map (type 'dungeoncolors'), the only window with
+// the logic engine. Restored from localStorage at load so a tracker opened
+// second still has colors before the map's next refresh.
+try { window._dngColors = JSON.parse(localStorage.getItem('alttp-dungeon-colors') || '{}'); } catch(e) { window._dngColors = {}; }
+window.applyDungeonColors = function(colors) {
+  if (!colors) return;
+  window._dngColors = colors;
+  if (window.refreshDungeonPanel) window.refreshDungeonPanel();
+};
+window.addEventListener('storage', function(e) {
+  if (e.key !== 'alttp-dungeon-colors' || !e.newValue) return;
+  try { window.applyDungeonColors(JSON.parse(e.newValue)); } catch(ex) {}
+});
+// A map that was already open when this window launched has nothing new to
+// send (it only broadcasts on change), so ask for the current set once.
+setTimeout(function() {
+  try { if (window._itemsBc) window._itemsBc.postMessage({ type: 'requestColors' }); } catch(e) {}
+}, 400);
+
+window.DngPanelHost = {
+  // Smaller type here: the tracker window is narrow, and the panel must stay
+  // readable at its own size no matter how far the tracker itself is scaled up.
+  compact: true,
+  // "Show Dungeon Chests" in the tracker's settings menu; off by default. Off =
+  // the card keeps its name, status, counts and icons but drops the chest list.
+  locations: function() { return ITEM_SETTINGS.dungeonChests === true; },
+  status: function(key) {
+    // No map open yet → no colors; the line shows just the location name.
+    return window.dngStatusFromColor((window._dngColors || {})[key]);
+  },
+  // The prize this dungeon holds, for the card's icon row. Read from the slot's
+  // own image, which is where every prize change (manual cycle, ROM auto-mark)
+  // already lands — so there is no second copy to keep in step.
+  prize: function(key) {
+    var img = document.querySelector('[data-dungeon-key="' + key + '"] .prize-img');
+    if (!img || !img.src) return null;
+    var src = img.src;
+    var name = src.indexOf('greenpendant') !== -1 ? 'greenpendant'
+             : src.indexOf('redcrystal')   !== -1 ? 'redcrystal'
+             : src.indexOf('pendant')      !== -1 ? 'pendant'
+             : src.indexOf('unknown')      !== -1 ? 'unknown'
+             : 'crystal';
+    return { name: name, obtained: src.indexOf('0.png') !== -1 };
+  },
+  // Pots + enemy drops together, for the card's drop rollup. items.js owns the
+  // arithmetic; this is just the hook.
+  nonChest: function(key) {
+    return window.dungeonNonChest ? window.dungeonNonChest(key) : null;
+  },
+  counts: function(key) {
+    var d = (window.dungeons || {})[key];
+    if (!d) return null;
+    var effMax = Math.max(0, (d.maxItems || 0) - (d.skipped || 0));
+    var c = {
+      items:    Math.min(d.itemCount || 0, effMax),
+      maxItems: effMax,
+      // Chests the player waved off (left-click while autotracking). They never
+      // set a flag, so the card has to be told or they'd sit "left" forever.
+      skipped:  d.skipped || 0,
+      // Keys COLLECTED ($7EF4E0+, which only ever rises) — the count the
+      // logic and the card both answer to.
+      keys:     d.smallKeyCount || 0,
+      keysFound: Math.max(d.smallKeyCount || 0, d.smallKeyMax || 0),
+      maxKeys:  d.maxSmallKeys  || 0,
+      bigkey:   d.bigkeyState   || 0
+    };
+    // A dungeon without a map or compass slot leaves the field out entirely, so
+    // the panel omits that icon instead of drawing a permanently dim one.
+    if (!d.noMap)     c.map     = d.mapState     || 0;
+    if (!d.noCompass) c.compass = d.compassState || 0;
+    return c;
+  },
+  completion: function(key) {
+    var slot = document.querySelector('.dungeon-slot[data-dungeon-key="' + key + '"]');
+    if (!slot) return null;
+    return {
+      fullyCleared: slot.classList.contains('completed-full'),
+      // 'prize-obtained' is the boss-down-but-items-remain state.
+      cleared:      slot.classList.contains('prize-obtained')
+    };
+  },
+  // Live item states for the per-location rules. `items` is items.js's own
+  // object (a top-level const, so it's reachable by name); window.trackerItems
+  // in this window only carries keys and medallions.
+  items: function() {
+    var out = {};
+    ['bow','boomerang','hookshot','bomb','mushroom','powder','firerod','icerod',
+     'bombos','ether','quake','lamp','hammer','shovel','flute','net','book',
+     'somaria','byrna','cape','mirror','boots','gloves','flippers','moonpearl',
+     'sword','shield','tunic','agahnim'].forEach(function(k) {
+      try { out[k] = (items[k] && items[k].currentState) || 0; } catch (e) { out[k] = 0; }
+    });
+    return out;
+  },
+  bossOk: function(key) {
+    var d = (window.dungeons || {})[key];
+    if (!d || !d.bossState) return null;   // no boss picked / unknown boss
+    if (typeof BOSS_REQUIREMENTS === 'undefined') return null;
+    var req = BOSS_REQUIREMENTS[d.bossState];
+    // A known boss with no item requirement is beatable — true, not null,
+    // which the card reads as "boss unknown".
+    return req ? !!req() : true;
+  }
+};
+
+// Delegated hover: dungeon slots are rebuilt whenever the layout or dungeon-item
+// mode changes, so binding per element would need re-binding every time.
+document.addEventListener('mouseover', function(e) {
+  // The card only exists here when "Show Dungeon Chests" is on: without the
+  // chest list it was just the counts the slot already shows (Chris: "that is
+  // too much"). The map's hover is unaffected.
+  if (ITEM_SETTINGS.dungeonChests !== true) return;
+  var t = e.target;
+  // CT is a .ct-group rather than a .dungeon-slot, but it carries the same key.
+  var slot = (t && t.closest)
+    ? t.closest('.dungeon-slot[data-dungeon-key], .ct-group[data-dungeon-key]') : null;
+  if (!slot || slot === window._dngHoverSlot) return;
+  window._dngHoverSlot = slot;
+  if (window.showDungeonPanel) window.showDungeonPanel(slot.dataset.dungeonKey, slot);
+});
+document.addEventListener('mouseout', function(e) {
+  if (!window._dngHoverSlot) return;
+  var to = e.relatedTarget;
+  if (to && window._dngHoverSlot.contains(to)) return;
+  window._dngHoverSlot = null;
+  if (window.hideDungeonPanel) window.hideDungeonPanel();
+});
+
+// ── Set up BroadcastChannel so items.js can broadcast to map ──────────────────
+try { window._itemsBc = new BroadcastChannel('alttp-tracker'); } catch(e) {}
+
+// ── Listen for newgame from map on a separate channel instance ────────────────
+var _itemsResettingGame = false;
+try {
+  var _itemsReceiveBc = new BroadcastChannel('alttp-tracker');
+  _itemsReceiveBc.onmessage = function(e) {
+    if (e.data && e.data.type === 'requestSnap') {
+      if (typeof broadcastItemSnap === 'function') broadcastItemSnap();
+      return;
+    }
+    // Swordless toggled in the map's settings menu. The storage event in
+    // items.js covers this too; both paths are here because BroadcastChannel
+    // is unreliable across Electron windows and storage events don't fire in
+    // the window that wrote the value. applySwordlessMode is idempotent, so
+    // whichever arrives first wins and the other is a no-op.
+    // World State changed in the map's settings menu (Retro in particular
+    // changes chest counts and the key readouts). applyWorldStateChange is
+    // idempotent, so the storage-event path arriving too is a no-op.
+    if (e.data && e.data.type === 'setprize') {
+      if (window.setDungeonPrize) window.setDungeonPrize(e.data.key, e.data.name);
+      return;
+    }
+    if (e.data && e.data.type === 'dungeoncolors') {
+      window.applyDungeonColors(e.data.data);
+      return;
+    }
+    if (e.data && e.data.type === 'worldstate') {
+      if (typeof window.applyWorldStateChange === 'function') {
+        window.applyWorldStateChange(e.data.data);
+      }
+      return;
+    }
+    // Generic settings relay from the map's gear menu. The storage-event path
+    // in items.js covers the same keys; both apply functions are idempotent.
+    if (e.data && e.data.type === 'setting') {
+      var _k = e.data.key, _v = e.data.value;
+      if (_k === 'alttp-dungeon-items' && typeof window.applyDungeonItemsChange === 'function') {
+        window.applyDungeonItemsChange(_v);
+      } else if (_k === 'alttp-bossshuffle' && typeof window.applyBossShuffleChange === 'function') {
+        window.applyBossShuffleChange(_v);
+      } else if (_k === 'alttp-universal-keys' && typeof window.applyUniversalKeysChange === 'function') {
+        window.applyUniversalKeysChange(_v);
+      } else if (_k === 'alttp-keydrop' && typeof window.applyKeyDropChange === 'function') {
+        window.applyKeyDropChange(_v);
+      } else if (_k === 'alttp-enemy-keydrop' && typeof window.applyEnemyKeyDropChange === 'function') {
+        window.applyEnemyKeyDropChange(_v);
+      } else if (_k === 'alttp-keydrop-all' && typeof window.applyKeyDropAllChange === 'function') {
+        window.applyKeyDropAllChange(_v);
+      } else if (_k === 'alttp-pot-drops' && typeof window.applyPotDropsChange === 'function') {
+        window.applyPotDropsChange(_v);
+      } else if (_k === 'alttp-enemy-drops' && typeof window.applyEnemyDropsChange === 'function') {
+        window.applyEnemyDropsChange(_v);
+      } else if (_k === 'alttp-pots-bones' && typeof window.applyPotsBonesChange === 'function') {
+        window.applyPotsBonesChange(_v);
+      } else if (_k === 'alttp-random-prize' && typeof window.applyRandomPrizeChange === 'function') {
+        window.applyRandomPrizeChange(_v);
+      }
+      return;
+    }
+    if (e.data && e.data.type === 'dngskip') {
+      if (typeof window.onDngSkipChanged === 'function') {
+        window.onDngSkipChanged(e.data.key, e.data.count);
+      }
+      return;
+    }
+    if (e.data && e.data.type === 'swordless') {
+      if (typeof window.applySwordlessMode === 'function') {
+        window.applySwordlessMode(e.data.data === 'yes');
+      }
+      return;
+    }
+    if (e.data && e.data.type === 'newgame') {
+      if (_itemsResettingGame) return;
+      if (typeof resetItemTracker === 'function') {
+        _itemsResettingGame = true;
+        resetItemTracker();
+        setTimeout(function() { _itemsResettingGame = false; }, 1000);
+      }
+    }
+  };
+} catch(e) {}
+
+
+// ── Load host/port from launcher settings before items.js connectWebSocket ────
+(function() {
+  var host = localStorage.getItem('alttp-ws-host') || 'localhost';
+  var port = parseInt(localStorage.getItem('alttp-ws-port') || '23074');
+  wsHost = host;   // items.js `let wsHost`
+  wsPort = port;   // items.js `let wsPort`
+})();
+
+// ── Scale and background from URL params ──────────────────────────────────────
+(function() {
+  var p = new URLSearchParams(window.location.search);
+  window._trackerScale = parseFloat(p.get('scale')) || 1;
+  if (window._trackerScale !== 1) document.body.style.zoom = window._trackerScale;
+
+  // Store dungeonItems mode for reference
+  window._dungeonItemsMode = p.get('dungeonitems') || localStorage.getItem('alttp-dungeon-items') || 'standard';
+
+  // Race Mode flag (shown as a "RACE" label left of the dungeon-mode label).
+  window._raceMode = (p.get('race') || localStorage.getItem('alttp-race-mode') || 'no') === 'yes';
+
+  // Boss shuffle flag — when "no" the bosses are vanilla so we hide the boss
+  // When boss shuffle is off, circles stay visible but are locked to vanilla
+  // assignments (CSS disables interaction; DOMContentLoaded seeds the bosses).
+  window._bossShuffle = p.get('bossshuffle') || localStorage.getItem('alttp-bossshuffle') || 'yes';
+  if (window._bossShuffle === 'no') {
+    document.documentElement.classList.add('no-boss-shuffle');
+    // Pre-populate vanilla boss assignments once the dungeon slots exist.
+    // Boss numbers match items.js boss image indices (boss1.png … boss10.png):
+    //   1=Armos Knights, 2=Lanmolas, 3=Moldorm, 4=Helmasaur King,
+    //   5=Arrghus, 6=Mothula, 7=Blind, 8=Kholdstare, 9=Vitreous, 10=Trinexx
+    var VANILLA_BOSSES = {
+      ep: 1, dp: 2, toh: 3, pod: 4, sp: 5,
+      sw: 6, tt: 7, ip: 8, mm: 9, tr: 10
+    };
+    document.addEventListener('DOMContentLoaded', function() {
+      Object.keys(VANILLA_BOSSES).forEach(function(key) {
+        if (typeof setBoss === 'function') setBoss(key, VANILLA_BOSSES[key]);
+      });
+    });
+  }
+
+  // Set mode label in bottom bar
+  document.addEventListener('DOMContentLoaded', function() {
+    var lbl = document.getElementById('item-mode-label');
+    if (lbl) {
+      // js/items.js owns the wording — one definition for every writer.
+      lbl.textContent = window.dungeonModeLabel ? window.dungeonModeLabel() : 'STD';
+    }
+    var raceLbl = document.getElementById('item-race-label');
+    if (raceLbl) raceLbl.textContent = window._raceMode ? 'RACE' : '';
+  });
+
+  // Background color — apply data-bg early so there's no flash before the
+  // settings system initialises. Also restores the image background.
+  var bg = p.get('bg') || localStorage.getItem('alttp-tracker-bg') || 'black';
+  var bgImg = localStorage.getItem('alttp-itemtracker-bg-image') || '';
+  if (bg === 'image' && !bgImg) bg = 'black';
+  if (bg !== 'black') {
+    document.documentElement.setAttribute('data-bg', bg);
+  }
+  if (bg === 'image' && bgImg) {
+    document.documentElement.style.setProperty('--bg-image', 'url("' + bgImg + '")');
+  }
+})();
+
+// ── Self-resize: measure content after render and fit window to it ────────────
+// Snap the window to hug the tracker content, trimming the launch-time border.
+// Width MUST be read from the content element, not body.scrollWidth: `overflow-x:
+// hidden` on html/body clamps body.scrollWidth to the viewport, so it can never
+// report a width smaller than the current window and the window can only grow.
+// .tracker-container is width:fit-content, so its offsetWidth is the true width.
+function fitWindowToContent() {
+  try {
+    var s = window._trackerScale || 1;
+    var body = document.body;
+    var container = document.querySelector('.tracker-container');
+    var chromeW = window.outerWidth  - window.innerWidth;
+    var chromeH = window.outerHeight - window.innerHeight;
+    if (chromeW < 0) chromeW = 0;      // macOS has no left/right window chrome
+    if (chromeH <= 0) chromeH = 28;    // title-bar fallback
+    var contentW = container ? container.offsetWidth : body.scrollWidth;
+    // scrollWidth/offsetWidth/scrollHeight are pre-zoom logical px — scale them.
+    // SIDE_PAD adds a little breathing room; the body centres the content, so it
+    // splits evenly left/right and keeps the edge dungeon borders (POD, GT) off
+    // the window frame.
+    var SIDE_PAD = 8;
+    var w = Math.ceil(contentW * s) + chromeW + SIDE_PAD;
+    var h = Math.ceil(body.scrollHeight * s) + chromeH + 4;
+    window.resizeTo(w, h);
+  } catch(e) {}
+}
+window.addEventListener('load', function() {
+  setTimeout(fitWindowToContent, 200);
+});
+
+// ── Hook: broadcast prizes whenever a dungeon prize changes ───────────────────
+function broadcastPrizes() {
+  if (!window._itemsBc) return;
+  try {
+    var prizes = {};
+    Object.keys(dungeons).forEach(function(key) {
+      if (dungeons[key].bigkeyOnly) return;
+      var prizeImg = document.querySelector('[data-dungeon-key="' + key + '"] .prize-img');
+      if (!prizeImg) return;
+      var src = prizeImg.src || '';
+      // Derive prize name from image src
+      var name = 'unknown';
+      if      (src.includes('greenpendant')) name = 'greenpendant';
+      else if (src.includes('pendant'))      name = 'pendant';
+      else if (src.includes('redcrystal'))   name = 'redcrystal';
+      else if (src.includes('crystal'))      name = 'crystal';
+      prizes[key] = {
+        name:         name,
+        obtained:     src.includes('1.png'),
+        mapState:     dungeons[key] ? (dungeons[key].mapState || 0) : 0,
+        otherCleared: dungeons[key] ? (dungeons[key].otherCleared || false) : false,
+        // Against the EFFECTIVE target: a chest the player waved off lowers what
+        // the dungeon still owes, so skipping the rest finishes it — the map
+        // then shades it as done rather than leaving it boss-cleared forever.
+        allItems:     dungeons[key]
+                        ? (dungeons[key].itemCount >=
+                           Math.max(0, (dungeons[key].maxItems || 0) - (dungeons[key].skipped || 0)))
+                        : false,
+        bossCleared:  dungeons[key] ? (dungeons[key].bossDefeated || false) : false
+      };
+    });
+    var mm = window.trackerItems ? (window.trackerItems.mmMedallion || 0) : 0;
+    var tr = window.trackerItems ? (window.trackerItems.trMedallion || 0) : 0;
+    window._itemsBc.postMessage({ type: 'prizes', data: prizes, mmMedallion: mm, trMedallion: tr });
+  } catch(e) {}
+}
+
+window.onPrizeCycled = function() { setTimeout(broadcastPrizes, 30); };
+
+// ── Medallion label cycling → broadcast items ─────────────────────────────────
+var _origCycleLabel = window.cycleMedallionLabel;
+window.cycleMedallionLabel = function(itemKey, slot) {
+  var medIdx = {bombos:1, ether:2, quake:3}[itemKey] || 0;
+  if (!window.trackerItems) window.trackerItems = {};
+
+  // Find what the OTHER two medallions are currently assigned to
+  var otherMM = 0, otherTR = 0;
+  ['bombos','ether','quake'].forEach(function(k) {
+    if (k === itemKey) return;
+    var lbl = items[k] ? items[k].medallionLabel : '';
+    var idx = {bombos:1, ether:2, quake:3}[k] || 0;
+    if (lbl === 'MM' || lbl === 'BOTH') otherMM = idx;
+    if (lbl === 'TR' || lbl === 'BOTH') otherTR = idx;
+  });
+
+  // Build available labels: always include '' (clear); include MM if not taken by another,
+  // TR if not taken by another, BOTH if neither is taken by another
+  var labels = [''];
+  if (!otherMM) labels.push('MM');
+  if (!otherTR) labels.push('TR');
+  if (!otherMM && !otherTR) labels.push('BOTH');
+
+  var currentLabel = items[itemKey] ? items[itemKey].medallionLabel : '';
+  var currentIdx = labels.indexOf(currentLabel);
+  // If current label is no longer valid (e.g. another medallion took it), reset to ''
+  var nextLabel = labels[(currentIdx + 1) % labels.length];
+
+  // Update items.js state
+  if (items[itemKey]) items[itemKey].medallionLabel = nextLabel;
+  var labelDiv = slot.querySelector('.medallion-label');
+  if (labelDiv) labelDiv.textContent = nextLabel;
+
+  // Compute new mm/tr values
+  var mm = otherMM;
+  var tr = otherTR;
+  if      (nextLabel === 'MM')   { mm = medIdx; }
+  else if (nextLabel === 'TR')   { tr = medIdx; }
+  else if (nextLabel === 'BOTH') { mm = medIdx; tr = medIdx; }
+
+  window.trackerItems.mmMedallion = mm;
+  window.trackerItems.trMedallion = tr;
+
+  // Send medallions message first so map updates immediately
+  if (window._itemsBc) {
+    window._itemsBc.postMessage({ type: 'medallions', data: {
+      mmMedallion: mm,
+      trMedallion: tr
+    }});
+  }
+  // Then send full snap
+  if (window.broadcastItemSnap) window.broadcastItemSnap();
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// Settings customization — Main Background / Item Background / Dungeon
+// Background. Ported from the Broadcast View's settings popup.
+// ════════════════════════════════════════════════════════════════════════════
+var ITEM_SETTINGS = {
+  bg:            'black',     // black | grey | white | transparent | image
+  bgImage:       '',          // data: URL of an uploaded background image
+  fillEnabled:   false,
+  fillColor:     'green',     // green | blue | purple | custom (top-right of diagonal)
+  fillCustom:    '#00aa00',
+  fillColor2:    'purple',    // green | blue | purple | custom (bottom-left of diagonal)
+  fillCustom2:   '#b675ff',
+  fillEffect:    'none',      // none | falling | starburst
+  chestsColor:   'blue',      // blue | green | purple | yellow | custom
+  chestsCustom:  '#5a8eff',
+  completeColor: 'green',     // blue | green | purple | yellow | custom
+  completeCustom:'#4dff88',
+  dungeonFillEnabled: true,   // completion tints shown when true
+  dungeonBoxEnabled:  true,   // dark slot container shown when true
+  showBoss:           true,   // false = hide all boss circles (vanilla bosses)
+  dungeonChests:      false,  // hover card's per-chest list; off by default
+  hereDot:            false,  // you-are-here dot on the dungeon label; off by default, never in Race Mode
+  defaultPrize:  'crystal',   // crystal | unknown — starting dungeon prize
+  checksColor:   'white',     // white | black | grey | custom (CHECKS number)
+  checksCustom:  '#ffffff'
+};
+var ITEM_FILL_COLORS      = { green:'#2ecc71', blue:'#3498db', purple:'#b675ff' };
+var ITEM_FILL_COLORS_DARK = { green:'#176b3b', blue:'#1c5478', purple:'#5e3d99' };
+var ITEM_DUNGEON_PRESETS = { blue:'#5a8eff', green:'#4dff88', purple:'#b675ff', yellow:'#ffcc44' };
+var CHECKS_COLOR_PRESETS = { white:'#ffffff', black:'#000000', grey:'#888888' };
+
+function loadItemSettings() {
+  try {
+    // bg reuses the launcher's key so the two stay in sync
+    ITEM_SETTINGS.bg             = localStorage.getItem('alttp-tracker-bg') || 'black';
+    // Follows the seed's Dungeon Item Shuffle setting. Session-only — never
+    // read from or written to storage, so each launch starts fresh.
+    ITEM_SETTINGS.defaultPrize   = (window.defaultPrizeSetting ? window.defaultPrizeSetting()
+                                   : ITEM_SETTINGS.defaultPrize);
+    ITEM_SETTINGS.bgImage        = localStorage.getItem('alttp-itemtracker-bg-image') || '';
+    ITEM_SETTINGS.fillEnabled    = localStorage.getItem('alttp-itemtracker-fill-enabled') === 'true';
+    ITEM_SETTINGS.fillColor      = localStorage.getItem('alttp-itemtracker-fill-color')   || ITEM_SETTINGS.fillColor;
+    ITEM_SETTINGS.fillCustom     = localStorage.getItem('alttp-itemtracker-fill-custom')  || ITEM_SETTINGS.fillCustom;
+    ITEM_SETTINGS.fillColor2     = localStorage.getItem('alttp-itemtracker-fill-color-2')  || ITEM_SETTINGS.fillColor2;
+    ITEM_SETTINGS.fillCustom2    = localStorage.getItem('alttp-itemtracker-fill-custom-2') || ITEM_SETTINGS.fillCustom2;
+    ITEM_SETTINGS.fillEffect     = localStorage.getItem('alttp-itemtracker-fill-effect')  || ITEM_SETTINGS.fillEffect;
+    ITEM_SETTINGS.chestsColor    = localStorage.getItem('alttp-itemtracker-chests-color') || ITEM_SETTINGS.chestsColor;
+    ITEM_SETTINGS.chestsCustom   = localStorage.getItem('alttp-itemtracker-chests-custom')|| ITEM_SETTINGS.chestsCustom;
+    ITEM_SETTINGS.completeColor  = localStorage.getItem('alttp-itemtracker-complete-color') || ITEM_SETTINGS.completeColor;
+    ITEM_SETTINGS.completeCustom = localStorage.getItem('alttp-itemtracker-complete-custom')|| ITEM_SETTINGS.completeCustom;
+    ITEM_SETTINGS.checksColor    = localStorage.getItem('alttp-itemtracker-checks-color')  || ITEM_SETTINGS.checksColor;
+    ITEM_SETTINGS.checksCustom   = localStorage.getItem('alttp-itemtracker-checks-custom') || ITEM_SETTINGS.checksCustom;
+    ITEM_SETTINGS.dungeonFillEnabled = localStorage.getItem('alttp-itemtracker-dungeon-fill') !== 'false';
+    ITEM_SETTINGS.dungeonBoxEnabled  = localStorage.getItem('alttp-itemtracker-dungeon-box')  !== 'false';
+    ITEM_SETTINGS.dungeonChests      = localStorage.getItem('alttp-itemtracker-dungeon-chests') === 'true';
+    ITEM_SETTINGS.hereDot            = localStorage.getItem('alttp-itemtracker-here-dot') === 'true';
+    // Show Boss: on unless the user turned it off here. It is deliberately NOT
+    // tied to the bossshuffle URL param any more — with boss shuffle off the
+    // circles still show the vanilla bosses, which is worth seeing, and the
+    // launcher passing bossshuffle=no was switching this off on every launch.
+    // One-time repair: a build that briefly defaulted this off wrote 'false'
+    // into the key, so the old value is discarded once.
+    // (v3: the same stale 'false' turned up again on profiles that had already
+    // been through the v2 repair, so it is discarded once more.)
+    if (localStorage.getItem('alttp-itemtracker-show-boss-v3') !== '1') {
+      localStorage.removeItem('alttp-itemtracker-show-boss');
+      localStorage.setItem('alttp-itemtracker-show-boss-v3', '1');
+    }
+    var _stored = localStorage.getItem('alttp-itemtracker-show-boss');
+    if (_stored !== null) ITEM_SETTINGS.showBoss = _stored !== 'false';
+  } catch (e) {}
+  // URL bg (from the launcher / a transparent-toggle recreate) wins
+  var urlBg = new URLSearchParams(window.location.search).get('bg');
+  if (urlBg) ITEM_SETTINGS.bg = urlBg;
+  if (ITEM_SETTINGS.bg === 'image' && !ITEM_SETTINGS.bgImage) ITEM_SETTINGS.bg = 'black';
+}
+
+function saveItemSettings() {
+  try {
+    localStorage.setItem('alttp-tracker-bg', ITEM_SETTINGS.bg);
+    localStorage.setItem('alttp-itemtracker-fill-enabled',   ITEM_SETTINGS.fillEnabled ? 'true' : 'false');
+    localStorage.setItem('alttp-itemtracker-fill-color',     ITEM_SETTINGS.fillColor);
+    localStorage.setItem('alttp-itemtracker-fill-custom',    ITEM_SETTINGS.fillCustom);
+    localStorage.setItem('alttp-itemtracker-fill-color-2',   ITEM_SETTINGS.fillColor2);
+    localStorage.setItem('alttp-itemtracker-fill-custom-2',  ITEM_SETTINGS.fillCustom2);
+    localStorage.setItem('alttp-itemtracker-fill-effect',    ITEM_SETTINGS.fillEffect);
+    localStorage.setItem('alttp-itemtracker-chests-color',   ITEM_SETTINGS.chestsColor);
+    localStorage.setItem('alttp-itemtracker-chests-custom',  ITEM_SETTINGS.chestsCustom);
+    localStorage.setItem('alttp-itemtracker-complete-color', ITEM_SETTINGS.completeColor);
+    localStorage.setItem('alttp-itemtracker-complete-custom',ITEM_SETTINGS.completeCustom);
+    localStorage.setItem('alttp-itemtracker-checks-color',   ITEM_SETTINGS.checksColor);
+    localStorage.setItem('alttp-itemtracker-checks-custom',  ITEM_SETTINGS.checksCustom);
+    localStorage.setItem('alttp-itemtracker-dungeon-fill',   ITEM_SETTINGS.dungeonFillEnabled ? 'true' : 'false');
+    localStorage.setItem('alttp-itemtracker-dungeon-box',    ITEM_SETTINGS.dungeonBoxEnabled  ? 'true' : 'false');
+    localStorage.setItem('alttp-itemtracker-show-boss',      ITEM_SETTINGS.showBoss            ? 'true' : 'false');
+    localStorage.setItem('alttp-itemtracker-dungeon-chests', ITEM_SETTINGS.dungeonChests     ? 'true' : 'false');
+    localStorage.setItem('alttp-itemtracker-here-dot',       ITEM_SETTINGS.hereDot           ? 'true' : 'false');
+  } catch (e) {}
+}
+
+// Show / hide every boss circle. Driven by html.no-boss-shuffle, same class
+// the launcher's "Boss Shuffle = No" early IIFE sets, so both paths share CSS.
+function applyShowBoss() {
+  // hide-boss, NOT no-boss-shuffle: that class belongs to the boss-shuffle
+  // setting and only locks the circles (pointer-events: none), so toggling it
+  // here left the circles on screen and the checkbox looked dead.
+  document.documentElement.classList.toggle('hide-boss', !ITEM_SETTINGS.showBoss);
+}
+
+// You-are-here dot: a setting, off by default, and never shown in Race Mode.
+// items.js still tags the slot (.dng-here); this class decides if it shows.
+function applyHereDot() {
+  document.documentElement.classList.toggle('show-here-dot', ITEM_SETTINGS.hereDot && !window._raceMode);
+}
+
+function saveItemBgImage(dataUrl) {
+  ITEM_SETTINGS.bgImage = dataUrl || '';
+  try {
+    if (dataUrl) localStorage.setItem('alttp-itemtracker-bg-image', dataUrl);
+    else         localStorage.removeItem('alttp-itemtracker-bg-image');
+    return true;
+  } catch (e) {
+    alert('Could not store background image — it may be too large. Try a smaller file.');
+    ITEM_SETTINGS.bgImage = '';
+    return false;
+  }
+}
+
+function applyItemFillVariable() {
+  var c = ITEM_SETTINGS.fillColor === 'custom'
+    ? ITEM_SETTINGS.fillCustom
+    : (ITEM_FILL_COLORS[ITEM_SETTINGS.fillColor] || ITEM_FILL_COLORS.green);
+  var c2 = ITEM_SETTINGS.fillColor2 === 'custom'
+    ? ITEM_SETTINGS.fillCustom2
+    : (ITEM_FILL_COLORS_DARK[ITEM_SETTINGS.fillColor2] || ITEM_FILL_COLORS_DARK.purple);
+  document.documentElement.style.setProperty('--item-fill-color', c);
+  document.documentElement.style.setProperty('--item-fill-color2', c2);
+}
+
+function applyChecksColor() {
+  var col = ITEM_SETTINGS.checksColor === 'custom'
+    ? ITEM_SETTINGS.checksCustom
+    : (CHECKS_COLOR_PRESETS[ITEM_SETTINGS.checksColor] || CHECKS_COLOR_PRESETS.white);
+  document.documentElement.style.setProperty('--check-num-color', col);
+}
+
+function applyItemDungeonColors() {
+  var chests = ITEM_SETTINGS.chestsColor === 'custom'
+    ? ITEM_SETTINGS.chestsCustom
+    : (ITEM_DUNGEON_PRESETS[ITEM_SETTINGS.chestsColor] || ITEM_DUNGEON_PRESETS.blue);
+  var complete = ITEM_SETTINGS.completeColor === 'custom'
+    ? ITEM_SETTINGS.completeCustom
+    : (ITEM_DUNGEON_PRESETS[ITEM_SETTINGS.completeColor] || ITEM_DUNGEON_PRESETS.green);
+  document.documentElement.style.setProperty('--chests-color',   chests);
+  document.documentElement.style.setProperty('--complete-color', complete);
+}
+
+// Completion tints only apply while <html> carries .dfill-on.
+function applyItemDungeonFill() {
+  document.documentElement.classList.toggle('dfill-on', !!ITEM_SETTINGS.dungeonFillEnabled);
+}
+
+// Toggle the default dark container on every dungeon slot.
+function applyItemDungeonBox() {
+  document.querySelectorAll('.dungeon-slot').forEach(function(slot) {
+    slot.classList.toggle('no-box', !ITEM_SETTINGS.dungeonBoxEnabled);
+  });
+}
+
+function applyItemBg(bg) {
+  // "image" with nothing stored — prompt for a file instead of switching.
+  if (bg === 'image' && !ITEM_SETTINGS.bgImage) {
+    var picker = document.getElementById('item-bg-image-file');
+    if (picker) picker.click();
+    document.querySelectorAll('input[name="its-bg"]').forEach(function(r){ r.checked = (r.value === ITEM_SETTINGS.bg); });
+    return;
+  }
+  ITEM_SETTINGS.bg = bg;
+  saveItemSettings();
+  if (bg === 'black') document.documentElement.removeAttribute('data-bg');
+  else                document.documentElement.setAttribute('data-bg', bg);
+  if (bg === 'image') {
+    document.documentElement.style.setProperty('--bg-image', ITEM_SETTINGS.bgImage ? 'url("' + ITEM_SETTINGS.bgImage + '")' : 'none');
+  }
+  // Transparent <-> opaque needs a window recreate (Electron limitation) —
+  // main.js handles that in the set-itemtracker-bg IPC handler.
+  if (window.electronAPI && window.electronAPI.setItemTrackerBg) window.electronAPI.setItemTrackerBg(bg);
+}
+
+function updateItemBgImageStatus() {
+  var lbl = document.getElementById('item-bg-image-status');
+  if (lbl) lbl.textContent = ITEM_SETTINGS.bgImage ? 'Image loaded' : 'No image';
+}
+
+// Add/remove .filled (+ the chosen effect class) on one slot. Only acts on a
+// transition so the effect animation doesn't replay on every refresh.
+function applyOneItemFill(el, isFilled) {
+  if (!el) return;
+  var was = el.classList.contains('filled');
+  if (isFilled === was) return;
+  if (isFilled) {
+    el.classList.remove('fx-falling', 'fx-fade', 'fx-edges');
+    el.classList.add('filled');
+    if (ITEM_SETTINGS.fillEffect === 'falling')   { void el.offsetWidth; el.classList.add('fx-falling'); }
+    if (ITEM_SETTINGS.fillEffect === 'starburst') { void el.offsetWidth; el.classList.add('fx-fade'); }
+    if (ITEM_SETTINGS.fillEffect === 'none')      { void el.offsetWidth; el.classList.add('fx-edges'); }
+  } else {
+    el.classList.remove('filled', 'fx-falling', 'fx-fade', 'fx-edges');
+  }
+}
+
+// Re-evaluate every item slot's fill from current item state. Exposed as a
+// global so items.js can call it whenever item state changes.
+function refreshItemFills() {
+  var on = ITEM_SETTINGS.fillEnabled;
+  document.querySelectorAll('.item-slot[data-item-key]').forEach(function(slot) {
+    if (slot.classList.contains('go-mode')) return;
+    var key = slot.dataset.itemKey;
+    if (!key || key === 'stats') return;
+    var have = on && items[key] && items[key].currentState > 0;
+    // Seed-flag cosmetics show a variant at state 0 (present from game load), so
+    // fill their slot even before the real item is obtained when the flag is on.
+    if (on && typeof seedFlagOverlay === 'function' && seedFlagOverlay(key, 0)) have = true;
+    applyOneItemFill(slot, have);
+  });
+  var grid = document.querySelector('.bottle-grid');
+  if (grid) {
+    var anyBottle = ['bottle1','bottle2','bottle3','bottle4'].some(function(b){
+      return items[b] && items[b].currentState > 0;
+    });
+    applyOneItemFill(grid, on && anyBottle);
+  }
+}
+window.refreshItemFills = refreshItemFills;
+
+// ── Settings popup ───────────────────────────────────────────────────────────
+function openItemSettings() {
+  document.querySelectorAll('input[name="its-bg"]').forEach(function(r){ r.checked = (r.value === ITEM_SETTINGS.bg); });
+  document.getElementById('item-opt-fill-enabled').checked = ITEM_SETTINGS.fillEnabled;
+  document.querySelectorAll('input[name="its-fill-color"]').forEach(function(r){ r.checked = (r.value === ITEM_SETTINGS.fillColor); });
+  document.querySelectorAll('input[name="its-fill-color-2"]').forEach(function(r){ r.checked = (r.value === ITEM_SETTINGS.fillColor2); });
+  document.querySelectorAll('input[name="its-fill-effect"]').forEach(function(r){ r.checked = (r.value === ITEM_SETTINGS.fillEffect); });
+  document.getElementById('item-opt-fill-custom').value = ITEM_SETTINGS.fillCustom;
+  document.getElementById('item-opt-fill-custom-2').value = ITEM_SETTINGS.fillCustom2;
+  document.querySelectorAll('input[name="its-chests-color"]').forEach(function(r){ r.checked = (r.value === ITEM_SETTINGS.chestsColor); });
+  document.getElementById('item-opt-chests-custom').value = ITEM_SETTINGS.chestsCustom;
+  document.querySelectorAll('input[name="its-complete-color"]').forEach(function(r){ r.checked = (r.value === ITEM_SETTINGS.completeColor); });
+  document.getElementById('item-opt-complete-custom').value = ITEM_SETTINGS.completeCustom;
+  var _dpNow = (window.defaultPrizeSetting ? window.defaultPrizeSetting() : ITEM_SETTINGS.defaultPrize);
+  ITEM_SETTINGS.defaultPrize = _dpNow;
+  document.querySelectorAll('input[name="its-default-prize"]').forEach(function(r){ r.checked = (r.value === _dpNow); });
+  document.querySelectorAll('input[name="its-checks-color"]').forEach(function(r){ r.checked = (r.value === ITEM_SETTINGS.checksColor); });
+  document.getElementById('item-opt-checks-custom').value = ITEM_SETTINGS.checksCustom;
+  document.getElementById('item-opt-dungeon-fill').checked = ITEM_SETTINGS.dungeonFillEnabled;
+  document.getElementById('item-opt-dungeon-box').checked  = ITEM_SETTINGS.dungeonBoxEnabled;
+  document.getElementById('item-opt-show-boss').checked    = ITEM_SETTINGS.showBoss;
+  document.getElementById('item-opt-dungeon-chests').checked = ITEM_SETTINGS.dungeonChests;
+  var _hd = document.getElementById('item-opt-here-dot');
+  _hd.checked  = ITEM_SETTINGS.hereDot && !window._raceMode;
+  _hd.disabled = !!window._raceMode;
+  document.getElementById('item-opt-here-dot-lbl').title = window._raceMode ? 'Disabled in Race Mode' : '';
+  syncItemFillSub();
+  updateItemBgImageStatus();
+  document.getElementById('item-settings-overlay').classList.remove('hidden');
+}
+function closeItemSettings() {
+  document.getElementById('item-settings-overlay').classList.add('hidden');
+}
+function syncItemFillSub() {
+  var sub = document.getElementById('item-fill-sub');
+  if (!sub) return;
+  if (ITEM_SETTINGS.fillEnabled) sub.classList.remove('disabled');
+  else                          sub.classList.add('disabled');
+}
+
+function wireItemSettingsHandlers() {
+  document.querySelectorAll('input[name="its-bg"]').forEach(function(r) {
+    r.addEventListener('change', function() { if (r.checked) applyItemBg(r.value); });
+  });
+  document.getElementById('item-opt-fill-enabled').addEventListener('change', function(e) {
+    ITEM_SETTINGS.fillEnabled = e.target.checked;
+    saveItemSettings(); syncItemFillSub(); refreshItemFills();
+  });
+  document.querySelectorAll('input[name="its-fill-color"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      if (!r.checked) return;
+      ITEM_SETTINGS.fillColor = r.value;
+      saveItemSettings(); applyItemFillVariable();
+    });
+  });
+  document.getElementById('item-opt-fill-custom').addEventListener('input', function(e) {
+    ITEM_SETTINGS.fillCustom = e.target.value;
+    if (ITEM_SETTINGS.fillColor === 'custom') applyItemFillVariable();
+    saveItemSettings();
+  });
+  document.querySelectorAll('input[name="its-fill-color-2"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      if (!r.checked) return;
+      ITEM_SETTINGS.fillColor2 = r.value;
+      saveItemSettings(); applyItemFillVariable();
+    });
+  });
+  document.getElementById('item-opt-fill-custom-2').addEventListener('input', function(e) {
+    ITEM_SETTINGS.fillCustom2 = e.target.value;
+    if (ITEM_SETTINGS.fillColor2 === 'custom') applyItemFillVariable();
+    saveItemSettings();
+  });
+  document.querySelectorAll('input[name="its-fill-effect"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      if (!r.checked) return;
+      ITEM_SETTINGS.fillEffect = r.value;
+      saveItemSettings();
+    });
+  });
+  document.querySelectorAll('input[name="its-chests-color"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      if (!r.checked) return;
+      ITEM_SETTINGS.chestsColor = r.value;
+      saveItemSettings(); applyItemDungeonColors();
+    });
+  });
+  document.getElementById('item-opt-chests-custom').addEventListener('input', function(e) {
+    ITEM_SETTINGS.chestsCustom = e.target.value;
+    if (ITEM_SETTINGS.chestsColor === 'custom') applyItemDungeonColors();
+    saveItemSettings();
+  });
+  document.querySelectorAll('input[name="its-default-prize"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      if (!r.checked) return;
+      ITEM_SETTINGS.defaultPrize = r.value;
+      // Session-only, on purpose: the next launch goes back to the default for
+      // the seed's dungeon item shuffle setting.
+      window._prizeOverride = r.value;
+      saveItemSettings();
+      if (window.applyDefaultPrizeToAll) window.applyDefaultPrizeToAll();
+    });
+  });
+  document.querySelectorAll('input[name="its-complete-color"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      if (!r.checked) return;
+      ITEM_SETTINGS.completeColor = r.value;
+      saveItemSettings(); applyItemDungeonColors();
+    });
+  });
+  document.getElementById('item-opt-complete-custom').addEventListener('input', function(e) {
+    ITEM_SETTINGS.completeCustom = e.target.value;
+    if (ITEM_SETTINGS.completeColor === 'custom') applyItemDungeonColors();
+    saveItemSettings();
+  });
+  document.querySelectorAll('input[name="its-checks-color"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      if (!r.checked) return;
+      ITEM_SETTINGS.checksColor = r.value;
+      saveItemSettings(); applyChecksColor();
+    });
+  });
+  document.getElementById('item-opt-checks-custom').addEventListener('input', function(e) {
+    ITEM_SETTINGS.checksCustom = e.target.value;
+    if (ITEM_SETTINGS.checksColor === 'custom') applyChecksColor();
+    saveItemSettings();
+  });
+  document.getElementById('item-opt-dungeon-fill').addEventListener('change', function(e) {
+    ITEM_SETTINGS.dungeonFillEnabled = e.target.checked;
+    saveItemSettings(); applyItemDungeonFill();
+  });
+  document.getElementById('item-opt-dungeon-box').addEventListener('change', function(e) {
+    ITEM_SETTINGS.dungeonBoxEnabled = e.target.checked;
+    saveItemSettings(); applyItemDungeonBox();
+  });
+  document.getElementById('item-opt-show-boss').addEventListener('change', function(e) {
+    ITEM_SETTINGS.showBoss = e.target.checked;
+    saveItemSettings(); applyShowBoss();
+  });
+  document.getElementById('item-opt-here-dot').addEventListener('change', function(e) {
+    ITEM_SETTINGS.hereDot = e.target.checked;
+    saveItemSettings(); applyHereDot();
+  });
+  document.getElementById('item-opt-dungeon-chests').addEventListener('change', function(e) {
+    ITEM_SETTINGS.dungeonChests = e.target.checked;
+    saveItemSettings();
+    // Turning it off takes the card away immediately, rather than leaving a
+    // stale one on screen until the pointer moves.
+    if (!ITEM_SETTINGS.dungeonChests) {
+      window._dngHoverSlot = null;
+      if (window.hideDungeonPanel) window.hideDungeonPanel();
+    } else if (window.refreshDungeonPanel) {
+      window.refreshDungeonPanel();
+    }
+  });
+
+  // Background image picker
+  var fileInput = document.getElementById('item-bg-image-file');
+  if (fileInput) {
+    fileInput.addEventListener('change', function(e) {
+      var file = e.target.files && e.target.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function() {
+        if (!saveItemBgImage(reader.result)) return;
+        updateItemBgImageStatus();
+        applyItemBg('image');
+        document.querySelectorAll('input[name="its-bg"]').forEach(function(r){ r.checked = (r.value === 'image'); });
+      };
+      reader.onerror = function() { alert('Could not read that file.'); };
+      reader.readAsDataURL(file);
+      fileInput.value = '';
+    });
+  }
+  var clearBtn = document.getElementById('item-bg-image-clear');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function() {
+      saveItemBgImage('');
+      updateItemBgImageStatus();
+      document.documentElement.style.removeProperty('--bg-image');
+      if (ITEM_SETTINGS.bg === 'image') {
+        applyItemBg('black');
+        document.querySelectorAll('input[name="its-bg"]').forEach(function(r){ r.checked = (r.value === 'black'); });
+      }
+    });
+  }
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeItemSettings();
+  });
+}
+
+function initItemSettings() {
+  loadItemSettings();
+  // Move the overlay out of <body> — body gets CSS zoom when the tracker is
+  // scaled, which would shift the fixed-position modal out of the viewport.
+  var overlay = document.getElementById('item-settings-overlay');
+  if (overlay && overlay.parentElement !== document.documentElement) {
+    document.documentElement.appendChild(overlay);
+  }
+  applyItemFillVariable();
+  applyItemDungeonColors();
+  applyChecksColor();
+  applyItemDungeonFill();
+  applyItemBg(ITEM_SETTINGS.bg);
+  applyItemDungeonBox();
+  applyShowBoss();
+  applyHereDot();
+  refreshItemFills();
+  wireItemSettingsHandlers();
+}
+
+// ── DOMContentLoaded: init tracker then connect via items.js stack ────────────
+document.addEventListener('DOMContentLoaded', function() {
+  // createTracker() was already called by items.js DOMContentLoaded handler.
+  // Initialise the settings customization (needs the rendered slots).
+  initItemSettings();
+  // Start WS using items.js's own connectWebSocket (already has UI hooks).
+  connectWebSocket();
+  // Broadcast initial prizes and full item snap once DOM is ready
+  setTimeout(broadcastPrizes, 500);
+  setTimeout(function() { if (window.broadcastItemSnap) window.broadcastItemSnap(); }, 600);
+});
+
+// ── Scale adjustment from bottom bar buttons ──────────────────────────────────
+function changeTrackerScale(delta) {
+  var current = window._trackerScale || 1;
+  // 5% steps, clamped 50%–150% to match the Map scale control.
+  var next = Math.min(1.5, Math.max(0.5, Math.round((current + delta) * 20) / 20));
+  window._trackerScale = next;
+  document.body.style.zoom = next;
+  // Resize window to fit new scale (same content-based measurement as launch).
+  setTimeout(fitWindowToContent, 50);
+}
+
+// ── New Game Hotkey ───────────────────────────────────────────────────────────
+(function() {
+  var DEFAULT_KEY = '\\';
+  var DEFAULT_ACCEL = '\\'; // Electron accelerator for backslash
+  var _hotkeyEnabled  = false;
+  var _currentAccel   = DEFAULT_ACCEL;
+  var _currentDisplay = DEFAULT_KEY;
+  var _recording = false;
+
+  // Map DOM KeyboardEvent code → Electron accelerator token
+  var CODE_TO_ACCEL = {
+    'Backslash': '\\', 'BracketLeft': '[', 'BracketRight': ']',
+    'Semicolon': ';',  'Quote': "'",       'Comma': ',',
+    'Period': '.',     'Slash': '/',       'Backquote': '`',
+    'Minus': '-',      'Equal': '=',       'Space': 'Space',
+    'Tab': 'Tab',      'Escape': 'Escape', 'Backspace': 'Backspace',
+    'Delete': 'Delete','Insert': 'Insert', 'Home': 'Home',
+    'End': 'End',      'PageUp': 'PageUp', 'PageDown': 'PageDown',
+    'ArrowUp': 'Up',   'ArrowDown': 'Down','ArrowLeft': 'Left','ArrowRight': 'Right',
+  };
+
+  function keyEventToAccel(e) {
+    var parts = [];
+    if (e.ctrlKey)  parts.push('Ctrl');
+    if (e.altKey)   parts.push('Alt');
+    if (e.shiftKey) parts.push('Shift');
+    if (e.metaKey)  parts.push('Super');
+    var code = e.code;
+    var key;
+    if (CODE_TO_ACCEL[code]) {
+      key = CODE_TO_ACCEL[code];
+    } else if (/^Key([A-Z])$/.test(code)) {
+      key = code.slice(3); // "KeyA" → "A"
+    } else if (/^Digit(\d)$/.test(code)) {
+      key = code.slice(5); // "Digit1" → "1"
+    } else if (/^F(\d+)$/.test(code)) {
+      key = code; // "F5" stays "F5"
+    } else {
+      key = e.key.length === 1 ? e.key : code;
+    }
+    parts.push(key);
+    return parts.join('+');
+  }
+
+  // Human-readable display for the recorded key
+  function keyEventToDisplay(e) {
+    var parts = [];
+    if (e.ctrlKey)  parts.push('Ctrl');
+    if (e.altKey)   parts.push('Alt');
+    if (e.shiftKey) parts.push('Shift');
+    if (e.metaKey)  parts.push('Win');
+    parts.push(e.key === '\\' ? '\\' : (e.key.length === 1 ? e.key.toUpperCase() : e.key));
+    return parts.join('+');
+  }
+
+  function setStatus(msg, color) {
+    var el = document.getElementById('item-hotkey-status');
+    if (el) { el.textContent = msg; el.style.color = color || '#888'; }
+  }
+
+  function setDisplay(txt) {
+    var el = document.getElementById('item-hotkey-display');
+    if (el) el.textContent = txt;
+  }
+
+  function syncSubEnabled() {
+    var sub = document.getElementById('item-hotkey-sub');
+    if (sub) sub.classList.toggle('disabled', !_hotkeyEnabled);
+  }
+
+  async function applyHotkey() {
+    if (!window.electronAPI || !window.electronAPI.registerNewgameHotkey) return;
+    var result = await window.electronAPI.registerNewgameHotkey(_currentAccel);
+    if (result && result.ok) {
+      setStatus('Active: ' + _currentDisplay, '#5a5');
+    } else {
+      setStatus('Failed: ' + (result && result.error ? result.error : 'unknown'), '#c55');
+    }
+  }
+
+  async function removeHotkey() {
+    if (!window.electronAPI || !window.electronAPI.unregisterNewgameHotkey) return;
+    await window.electronAPI.unregisterNewgameHotkey();
+    setStatus('Hotkey disabled', '#888');
+  }
+
+  // Wire up enable checkbox
+  document.getElementById('item-hotkey-enabled').addEventListener('change', async function(e) {
+    _hotkeyEnabled = e.target.checked;
+    syncSubEnabled();
+    if (_hotkeyEnabled) {
+      await applyHotkey();
+    } else {
+      await removeHotkey();
+    }
+  });
+
+  // Record button — capture next keydown
+  document.getElementById('item-hotkey-record-btn').addEventListener('click', function() {
+    if (!_hotkeyEnabled) return;
+    _recording = true;
+    setStatus('Press any key...', '#fa0');
+    setDisplay('...');
+    var btn = this;
+    btn.disabled = true;
+
+    function onKey(e) {
+      // Ignore bare modifiers
+      if (['Control','Alt','Shift','Meta'].indexOf(e.key) !== -1) return;
+      e.preventDefault();
+      e.stopPropagation();
+      _recording = false;
+      window.removeEventListener('keydown', onKey, true);
+      btn.disabled = false;
+      _currentAccel   = keyEventToAccel(e);
+      _currentDisplay = keyEventToDisplay(e);
+      setDisplay(_currentDisplay);
+      if (_hotkeyEnabled) applyHotkey();
+    }
+    window.addEventListener('keydown', onKey, true);
+  });
+
+  // Reset to default
+  document.getElementById('item-hotkey-reset-btn').addEventListener('click', function() {
+    _currentAccel   = DEFAULT_ACCEL;
+    _currentDisplay = DEFAULT_KEY;
+    setDisplay(DEFAULT_KEY);
+    if (_hotkeyEnabled) applyHotkey();
+  });
+
+  // Listen for newgame fired from main process via the hotkey.
+  // Do NOT set _itemsResettingGame here — this is an originating event,
+  // not a received broadcast, so resetItemTracker() must be free to
+  // broadcast {type:'newgame'} to the map and broadcast windows.
+  if (window.electronAPI && window.electronAPI.onNewgame) {
+    window.electronAPI.onNewgame(function() {
+      if (typeof resetItemTracker === 'function') resetItemTracker();
+    });
+  }
+
+  // Init
+  syncSubEnabled();
+  setStatus('');
+})();
+</script>
+<script src="js/mobile.js?v=18"></script>
+</body>
+</html>

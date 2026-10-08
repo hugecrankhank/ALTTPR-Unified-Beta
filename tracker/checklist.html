@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Check List</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #111;
+    color: #ddd;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    font-size: 12px;
+    overflow-x: hidden;
+  }
+  #header {
+    background: #1a1a1a;
+    border-bottom: 1px solid #333;
+    padding: 6px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  #header h2 { font-size: 13px; color: #aaa; font-weight: 600; }
+  #summary { font-size: 11px; color: #666; }
+  .two-col {
+    display: flex;
+    align-items: flex-start;
+  }
+  .two-col .half {
+    flex: 1;
+    min-width: 0;
+    border-right: 1px solid #222;
+  }
+  .two-col .half:last-child { border-right: none; }
+  .section-header {
+    background: #1e1e1e;
+    border-bottom: 1px solid #2a2a2a;
+    border-top: 1px solid #2a2a2a;
+    padding: 5px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #888;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .check-row {
+    display: flex;
+    align-items: center;
+    padding: 4px 8px;
+    border-bottom: 1px solid #1a1a1a;
+    gap: 6px;
+    cursor: pointer;
+  }
+  .check-row:hover { background: #1c1c1c; }
+  .check-row:active { opacity: 0.6; }
+  .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .dot.green   { background: #44cc44; }
+  .dot.yellow  { background: #cccc22; }
+  /* Out of logic — matches the 'ool' swatch in map.html (#9333ea). Without
+     this rule purple rows rendered with no background at all, i.e. an
+     invisible swatch. */
+  .dot.purple  { background: #9333ea; }
+  .dot.orange  { background: #cc7700; }
+  .dot.red     { background: #cc2222; }
+  .dot.cleared { background: #444; }
+  .check-name {
+    flex: 1;
+    color: #ccc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 11px;
+  }
+  .empty-msg {
+    padding: 12px 8px;
+    color: #555;
+    text-align: center;
+    font-style: italic;
+    font-size: 11px;
+  }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h2>☑ Check List</h2>
+  <span id="summary">–</span>
+</div>
+<div id="list"></div>
+
+<script>
+'use strict';
+
+// ── Check definitions matching map.html CHECKS array ─────────────────────────
+// [sramId, left%, top%, label, world]
+var CHECKS_DEF = [
+  // Light World
+  [0,   61.60, 29.60, "King's Tomb",           "lw"],
+  [1,   46.80, 93.40, "Dam",                   "lw"],
+  [111, 45.00, 93.40, "Sunken Treasure",        "lw"],
+  [2,   54.80, 67.90, "Link's House",           "lw"],
+  [3,   76.80,  9.30, "Spiral Cave",            "lw"],
+  [5,   16.20, 57.80, "Tavern",                 "lw"],
+  [6,    8.80, 54.20, "Chicken House",          "lw"],
+  [9,   20.00, 83.60, "Aginah's Cave",          "lw"],
+  [12,  81.40, 41.40, "Sahasrahla's Hut (3)",   "lw"],
+  [13,  57.20, 10.50, "Spike Cave",             "dw"],
+  [14,   3.40, 41.00, "Kakariko Well (5)",      "lw"],
+  [15,  13.40, 41.00, "Blind's Hut (5)",        "lw"],
+  [17,  82.80, 17.10, "Paradox Cave (7)",       "lw"],
+  [18,  39.00, 29.30, "Bonk Rock Cave",         "lw"],
+  [19,  65.20, 93.40, "Mini Moldorm Cave (5)",  "lw"],
+  [20,  90.90, 76.90, "Ice Rod Cave",           "lw"],
+  [22,  83.20,  8.00, "Hookshot Cave (4)",      "dw"],
+  [65,   9.00, 47.30, "Bottle Merchant",        "lw"],
+  [66,  81.40, 45.00, "Sahasrahla NPC",         "lw"],
+  [68,  16.20, 51.10, "Sick Kid",               "lw"],
+  [70,  70.80, 69.70, "Hobo",                   "lw"],
+  [71,  42.00,  3.40, "Ether Tablet",           "lw"],
+  [74,  96.00, 14.00, "King Zora",              "lw"],
+  [75,  41.60, 20.40, "Old Man",                "lw"],
+  [76,  81.60, 32.50, "Potion Shop",            "lw"],
+  [77,  18.80, 13.00, "Lost Woods Hideout",     "lw"],
+  [78,  30.20,  7.60, "Lumberjack Tree",        "lw"],
+  [79,  48.60, 14.80, "Spectacle Rock Cave",    "lw"],
+  [80,  28.20, 84.10, "Cave 45",                "lw"],
+  [81,  56.20, 27.00, "Graveyard Ledge",        "lw"],
+  [82,  18.60, 77.30, "Checkerboard Cave",      "lw"],
+  [84,  15.40, 65.90, "Library",                "lw"],
+  [85,  12.40,  8.60, "Mushroom",               "lw"],
+  [86,  50.80,  8.50, "Spectacle Rock",         "lw"],
+  [87,  80.40,  3.40, "Floating Island",        "lw"],
+  [88,   3.60, 67.00, "Race Minigame",          "lw"],
+  [89,   3.60, 91.00, "Desert West Ledge",      "lw"],
+  [90,  72.20, 82.90, "Lake Hylia Island",      "lw"],
+  [94,  95.40, 17.30, "Zora's Ledge",           "lw"],
+  [95,  28.80, 66.20, "Flute Boy Spot",         "lw"],
+  [96,  53.60, 32.40, "Escape Sewers (3)",      "lw"],
+  [97,  59.60, 41.80, "Uncle + Passage (2)",    "lw"],
+  [98,  50.00, 44.10, "Hyrule Castle (3)",      "lw"],
+  [99,  45.40, 27.00, "Sanctuary",              "lw"],
+  [100, 32.00, 58.00, "Magic Bat",              "lw"],
+  [103,  5.00,  3.40, "Master Sword Pedestal",  "lw"],
+  [104, 51.20, 38.20, "Dark Cross",             "lw"],
+  [109, 43.50, 53.50, "CT - Room 03",           "lw"],
+  [110, 57.00, 53.50, "CT - Dark Maze",         "lw"],
+  [105, 89.80, 15.20, "Waterfall Fairy (2)",    "lw"],
+  [4,   85.20,  9.30, "Mimic Cave",             "lw"],
+  // Dark World
+  [7,   10.80, 57.80, "Brewery",                "dw"],
+  [8,   19.70, 47.90, "C-Shaped House",         "dw"],
+  [10,   3.40, 79.50, "Mire Shed (2)",          "dw"],
+  [11,  83.60, 15.70, "Super Bunny Cave (2)",   "dw"],
+  [16,  60.00, 77.10, "Hype Cave (5)",          "dw"],
+  [67,  31.00, 68.60, "Stumpy",                 "dw"],
+  [69,  30.40, 52.20, "Purple Chest",           "dw"],
+  [72,  22.00, 92.20, "Bombos Tablet",          "lw"],
+  [64,   4.20, 46.40, "Chest Game",             "dw"],
+  [73,  92.00, 17.20, "Catfish",                "dw"],
+  [83,  31.60, 59.10, "Hammer Pegs",            "dw"],
+  [91,  34.20, 15.20, "Bumper Cave Ledge",      "dw"],
+  [92,  58.00, 43.50, "Pyramid",                "dw"],
+  [93,   5.80, 69.20, "Digging Game",           "dw"],
+  [101, 30.40, 51.80, "Blacksmith",             "lw"],
+  [102, 47.00, 48.50, "Pyramid Fairy (2)",      "dw"],
+];
+
+// Sort rank, best first. Mirrors the ORD ranking in map.html
+// (red < orange < purple < yellow < green), so an out-of-logic check —
+// reachable with a trick — sorts above a merely-visible one. Purple was
+// missing here, which dropped those rows below red at the very bottom.
+var COLOR_ORDER = { green: 0, yellow: 1, purple: 2, orange: 3, red: 4 };
+
+var _checks   = null;
+var _checkState = {};
+
+var bc = new BroadcastChannel('alttp-tracker');
+bc.onmessage = function(ev) {
+  var d = ev.data;
+  if (!d) return;
+  if (d.type === 'checkcolors') { _checks = d.colors; _checkState = d.cleared || {}; render(); }
+  if (d.type === 'newgame')     { _checks = null; _checkState = {}; render(); }
+};
+
+// Ask the map to send current state — retry a few times in case map isn't ready yet
+bc.postMessage({ type: 'request-checkcolors' });
+setTimeout(function() { if (!_checks) bc.postMessage({ type: 'request-checkcolors' }); }, 500);
+setTimeout(function() { if (!_checks) bc.postMessage({ type: 'request-checkcolors' }); }, 1500);
+setTimeout(function() { if (!_checks) bc.postMessage({ type: 'request-checkcolors' }); }, 3000);
+
+// Click a row to clear/unclear — tell the map via BroadcastChannel
+document.getElementById('list').addEventListener('click', function(ev) {
+  var row = ev.target.closest('.check-row');
+  if (!row) return;
+  var id = parseInt(row.getAttribute('data-id'), 10);
+  if (isNaN(id)) return;
+  // Optimistically toggle local state, re-render, then tell the map
+  _checkState[id] = !_checkState[id];
+  render();
+  bc.postMessage({ type: 'toggle-check', id: id, cleared: !!_checkState[id] });
+  // Also write to localStorage so map.html can react via storage event
+  try { localStorage.setItem('alttp-check-toggle', JSON.stringify({ id: id, cleared: !!_checkState[id], t: Date.now() })); } catch(e) {}
+});
+
+function render() {
+  var list   = document.getElementById('list');
+  var summary = document.getElementById('summary');
+
+  if (!_checks) {
+    list.innerHTML = '<div class="section-header">Light World</div><div class="empty-msg">Waiting for map data…</div>';
+    summary.textContent = '–';
+    return;
+  }
+
+  var lw = [], dw = [];
+  var totalAvail = 0, totalVisible = 0, totalOol = 0, totalRemain = 0;
+
+  CHECKS_DEF.forEach(function(c) {
+    var id = c[0], label = c[3], world = c[4];
+    var cleared = !!_checkState[id];
+    // The map sends null for checks it hides entirely (e.g. CT - Room 03 and
+    // CT - Dark Maze outside keysanity, or in entrance shuffle). Those rows
+    // were falling through `|| 'red'` and showing as unavailable checks that
+    // don't exist in this seed — skip them so the list matches the map.
+    var raw = _checks[id];
+    if (!cleared && raw === null) return;
+    var color = cleared ? 'cleared' : (raw || 'red');
+    if (!cleared) {
+      totalRemain++;
+      if (color === 'green') totalAvail++;
+      if (color === 'yellow' || color === 'orange') totalVisible++;
+      if (color === 'purple') totalOol++;
+    }
+    (world === 'lw' ? lw : dw).push({ id: id, label: label, color: color, cleared: cleared });
+  });
+
+  function sortRows(rows) {
+    rows.sort(function(a, b) {
+      var ac = a.cleared ? 99 : (COLOR_ORDER[a.color] !== undefined ? COLOR_ORDER[a.color] : 9);
+      var bc = b.cleared ? 99 : (COLOR_ORDER[b.color] !== undefined ? COLOR_ORDER[b.color] : 9);
+      if (ac !== bc) return ac - bc;
+      return a.label.localeCompare(b.label);
+    });
+  }
+  sortRows(lw);
+  sortRows(dw);
+
+  function buildRow(r) {
+    var style = r.cleared ? ' style="opacity:0.35;"' : '';
+    return '<div class="check-row" data-id="' + r.id + '"' + style + '>' +
+      '<div class="dot ' + (r.cleared ? 'cleared' : r.color) + '"></div>' +
+      '<span class="check-name">' + r.label + '</span>' +
+      '</div>';
+  }
+
+  function buildTwoCol(rows) {
+    if (!rows.length) return '<div class="empty-msg">Nothing here</div>';
+    var half = Math.ceil(rows.length / 2);
+    var left  = rows.slice(0, half);
+    var right = rows.slice(half);
+    return '<div class="two-col">' +
+      '<div class="half">' + left.map(buildRow).join('') + '</div>' +
+      '<div class="half">' + right.map(buildRow).join('') + '</div>' +
+      '</div>';
+  }
+
+  // Out-of-logic only appears when the seed actually has some, so the summary
+  // keeps its original shape for runs that never produce a purple check.
+  summary.textContent = totalAvail + ' avail · ' + totalVisible + ' visible · ' +
+    (totalOol ? totalOol + ' out of logic · ' : '') + totalRemain + ' remaining';
+
+  list.innerHTML =
+    '<div class="section-header">Light World</div>' + buildTwoCol(lw) +
+    '<div class="section-header">Dark World</div>'  + buildTwoCol(dw);
+}
+
+render();
+</script>
+</body>
+</html>
