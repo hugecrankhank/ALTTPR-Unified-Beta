@@ -10,7 +10,10 @@
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- Solid status bar, not black-translucent: on recent iOS a Home Screen app with a
+     see-through status bar shows the page up under the clock but then cuts the same
+     height off the bottom of the screen (62pt on an iPhone 17 Pro Max). -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="ALTTPR Lite">
 <style>
   :root {

@@ -131,32 +131,6 @@
       applyWorld();
       refit();
     }
-    fullScreen();
-  }
-
-  // ── Home Screen app: use the whole screen ─────────────────────────────────
-  // iOS bug: in a Home Screen web app with a see-through status bar, a page
-  // pinned to the screen edges (position: fixed; inset: 0) comes out shorter
-  // than the screen by the status bar's height (62pt on a 17 Pro Max), which
-  // left an empty band at the bottom. When that happens, stretch the page to
-  // the screen's height. Measured rather than assumed, so it does nothing where
-  // iOS gets it right.
-  function standalone() {
-    return navigator.standalone === true ||
-      !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
-  }
-  function fullScreen() {
-    var b = document.body;
-    b.style.removeProperty('height'); b.style.removeProperty('bottom');
-    if (!on || !standalone()) return;
-    var portrait = window.innerHeight >= window.innerWidth;
-    var full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
-    var have = b.getBoundingClientRect().height;
-    if (have < full - 2) {
-      b.style.setProperty('bottom', 'auto', 'important');
-      b.style.setProperty('height', full + 'px', 'important');
-      refit();
-    }
   }
 
   var CSS = [
@@ -212,7 +186,6 @@
     var sel = $('layout');
     if (sel) sel.addEventListener('change', function () { setTimeout(apply, 0); });
   });
-  window.addEventListener('resize', function (e) { if (e.isTrusted !== false) { apply(); fullScreen(); } });
-  window.addEventListener('orientationchange', function () { setTimeout(function () { apply(); fullScreen(); }, 300); });
-  window.addEventListener('load', function () { setTimeout(fullScreen, 100); });
+  window.addEventListener('resize', function (e) { if (e.isTrusted !== false) apply(); });
+  window.addEventListener('orientationchange', function () { setTimeout(apply, 300); });
 })();
