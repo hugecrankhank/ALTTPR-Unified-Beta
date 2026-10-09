@@ -22,8 +22,16 @@ self.addEventListener('fetch', (e) => {
   const url = req.url;
   const sameOrigin = url.startsWith(self.registration.scope);
   if (!sameOrigin && !url.startsWith(CDN)) return;   // leave everything else alone
+  // This site's own files: always ask the server whether there's a newer copy
+  // (cache: 'no-cache' revalidates; an unchanged file costs a "not modified").
+  // GitHub Pages lets browsers reuse files for 10 minutes, so without this an
+  // update could take that long to show up after reopening the app.
+  const fresh = sameOrigin
+    ? fetch(url, { cache: 'no-cache', credentials: 'same-origin' }).then((res) =>
+        (res.redirected && req.mode === 'navigate') ? Response.redirect(res.url, 302) : res)
+    : fetch(req);
   e.respondWith(
-    fetch(req).then((res) => {
+    fresh.then((res) => {
       if (res && (res.ok || res.type === 'opaque')) {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
