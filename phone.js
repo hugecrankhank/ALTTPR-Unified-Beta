@@ -109,6 +109,15 @@
     });
     var aside = document.querySelector('aside');
     aside.insertBefore(bar, $('frames'));
+    // Refit the panel whenever its space changes size for any reason: the ⚙ menu
+    // opening and closing (the header grows and shrinks), rotation, the game area.
+    // Without this, closing ⚙ left the tracker at its smaller, menu-open size.
+    var refitTimer = null;
+    if (window.ResizeObserver) new ResizeObserver(function () {
+      if (!on) return;
+      clearTimeout(refitTimer);
+      refitTimer = setTimeout(refit, 50);
+    }).observe($('frames'));
 
     var gear = document.createElement('button');
     gear.id = 'phone-gear';
