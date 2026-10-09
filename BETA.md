@@ -1,6 +1,6 @@
 # ALTTPR Unified — test site
 
-Test builds from the private dev repo (commit fa7b74a). Not the release.
+Test builds from the private dev repo (commit 7fa7e04). Not the release.
 
 - Full: https://hugecrankhank.github.io/ALTTPR-Unified-Beta/
 - Lite: https://hugecrankhank.github.io/ALTTPR-Unified-Beta/lite/
