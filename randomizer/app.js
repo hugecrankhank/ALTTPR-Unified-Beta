@@ -4,7 +4,7 @@ import { md5 } from './md5.js';
 import { parseSprite, applySprite, drawHead, drawSheet } from './sprite.js';
 import { MsuPlayer, trackNumber } from './msu.js';
 import { buildLink, readLink, clearLink, codeForSeed, codeFromRom, codeNames, renderCode, PARAMS } from './share.js';
-import { openLibrary, fetchSprite, labelOf, isPlainLink } from './library.js';
+import { openLibrary, fetchSprite, labelOf, isPlainLink, loadList } from './library.js';
 import { relayUrl, ownRelay, setRelayUrl, DEFAULT_RELAY, alttprId, fetchAlttprSeed, baseFor, patchSeed } from './remote.js';
 import * as Kara from './kara/index.js';
 import { buildUi as buildKaraUi } from './kara/ui.js';
@@ -753,18 +753,85 @@ async function refreshSprite() {
   if (own) drawSheet(parsed, $('r-sprite-sheet').querySelector('canvas'));
 }
 
+// ── changing the sprite during a game ────────────────────────────────────────
+// Link's graphics are read from the ROM every frame, so writing the new sprite
+// into the running ROM changes him at once; his colours live in the palette
+// buffer in work RAM, which gets the new ones too. Also kept with the game
+// (Resume and switching games carry the new ROM).
+const WRAM = 0xF50000;   // usb2snes address of $7E0000
+function rd(addr) { try { return window.AlttpBridge.read(WRAM + addr, 1)[0]; } catch (e) { return 0; } }
+
+async function liveSprite(sp) {
+  const app = window.UnifiedApp, br = window.AlttpBridge;
+  const run = app && app.runningRom && app.runningRom();
+  if (!run || !br || !br.patchRom) return null;          // no game running
+  let rom = run.bytes;
+  const hdr = rom.length % 1024 === 512 ? 512 : 0;
+  rom = rom.slice(hdr);
+  if (rom.length < 0xE0000) return false;
+  if (sp && sp.bytes) {
+    applySprite(rom, parseSprite(sp.bytes));
+  } else {
+    // the game's own Link, from your base ROM
+    const jp = await kvGet('base-jp10').catch(() => null);
+    const b = jp && (jp.bytes || jp);
+    if (!b || !b.length) return false;
+    const base = new Uint8Array(b).subarray(b.length % 1024 === 512 ? 512 : 0);
+    rom.set(base.subarray(0x80000, 0x87000), 0x80000);
+    rom.set(base.subarray(0xDD308, 0xDD308 + 120), 0xDD308);
+    rom.set(base.subarray(0xDEDF5, 0xDEDF9), 0xDEDF5);
+  }
+  const n = br.patchRom(rom);
+  if (!n) return false;
+  // keep the changed ROM with the game
+  const full = new Uint8Array(hdr + rom.length);
+  full.set(run.bytes.subarray(0, hdr)); full.set(rom, hdr);
+  app.setRunningRom(full);
+  // Link's colours now: mail 0-2 (bunny uses the 4th set), gloves in colour 13
+  const set = rd(0x02E0) ? 3 : Math.min(rd(0xF35B), 2);
+  const pal = rom.slice(0xDD308 + set * 30, 0xDD308 + set * 30 + 30);
+  const gl = rd(0xF354);
+  if (gl === 1 || gl === 2) { const g = 0xDEDF5 + (gl - 1) * 2; pal[24] = rom[g]; pal[25] = rom[g + 1]; }
+  const ok = br.writeWram(WRAM + 0xC6E2, pal) && br.writeWram(WRAM + 0xC4E2, pal) &&
+    br.writeWram(WRAM + 0x0015, new Uint8Array([1]));   // upload the palette next frame
+  return ok ? 'now' : 'colours-later';
+}
+
+function spriteStatus(label, live) {
+  if (live === 'now') return `Sprite set: ${label}. Changed in this game, and used for the next seed.`;
+  if (live === 'colours-later') return `Sprite set: ${label}. Changed in this game (its colours after the next door or screen), and used for the next seed.`;
+  if (live === false) return `Sprite set: ${label}. It applies to the next seed you generate (couldn't change this game).`;
+  return `Sprite set: ${label}. It applies to the next seed you generate.`;
+}
+
+async function randomSprite() {
+  const btn = $('r-sprite-random');
+  btn.disabled = true;
+  try {
+    status('Picking a random sprite…');
+    const list = (await loadList()).filter((e) => !isPlainLink(e));
+    const entry = list[Math.floor(Math.random() * list.length)];
+    await useLibrarySprite(entry);
+  } catch (e) {
+    status(String(e.message || e), 'bad');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function useLibrarySprite(entry) {
   if (isPlainLink(entry)) {
     await kvDel('sprite');
-    status('Back to the default Link sprite for the next seed.', 'ok');
+    status(spriteStatus('Default Link', await liveSprite(null).catch(() => false)), 'ok');
     refreshSprite();
     return;
   }
   const bytes = await fetchSprite(entry);
   parseSprite(bytes);   // throws with a readable reason if it isn't a sprite
   const label = labelOf(entry);
-  await kvSet('sprite', { bytes: bytes.slice(), label, preview: entry.preview });
-  status(`Sprite set: ${label}. It applies to the next seed you generate.`, 'ok');
+  const sp = { bytes: bytes.slice(), label, preview: entry.preview };
+  await kvSet('sprite', sp);
+  status(spriteStatus(label, await liveSprite(sp).catch(() => false)), 'ok');
   refreshSprite();
 }
 
@@ -849,8 +916,9 @@ export function init() {
       const bytes = new Uint8Array(await f.arrayBuffer());
       const info = parseSprite(bytes);
       const label = spriteLabel(info, f.name.replace(/\.[^.]+$/, ''));
-      await kvSet('sprite', { bytes: bytes.slice(), label });
-      status(`Sprite set: ${label}. It applies to the next seed you generate.`, 'ok');
+      const sp = { bytes: bytes.slice(), label };
+      await kvSet('sprite', sp);
+      status(spriteStatus(label, await liveSprite(sp).catch(() => false)), 'ok');
     } catch (e) {
       status(String(e.message || e), 'bad');
     }
@@ -858,9 +926,10 @@ export function init() {
   });
   $('r-sprite-clear').addEventListener('click', async () => {
     await kvDel('sprite');
-    status('Back to the default Link sprite for the next seed.', 'ok');
+    status(spriteStatus('Default Link', await liveSprite(null).catch(() => false)), 'ok');
     refreshSprite();
   });
+  $('r-sprite-random').addEventListener('click', randomSprite);
   refreshSprite();
 
   window.UnifiedRando = { useIfBaseRom, prepareLoadedRom, noteRom };

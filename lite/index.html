@@ -757,14 +757,26 @@
     AlttpBridge.setRom(bytes, name);
     bootEmulator(new File([bytes], name, { type: 'application/octet-stream' }));
   }
+  // One connection, opened at load and kept: a save made while the page is
+  // closing has no time to open a new one first (closing a laptop tab lost
+  // the spot that way).
+  var idbConn = null, idbOpening = null;
   function idbOpen() {
-    return new Promise(function (resolve, reject) {
+    if (idbConn) return Promise.resolve(idbConn);
+    if (idbOpening) return idbOpening;
+    idbOpening = new Promise(function (resolve, reject) {
       var r = indexedDB.open('alttpr-unified-kara', 1);
       r.onupgradeneeded = function () { r.result.createObjectStore('kv'); };
-      r.onsuccess = function () { resolve(r.result); };
-      r.onerror = function () { reject(r.error); };
+      r.onsuccess = function () {
+        idbConn = r.result;
+        idbConn.onversionchange = idbConn.onclose = function () { try { this.close(); } catch (e) {} if (idbConn === this) { idbConn = null; idbOpening = null; } };
+        resolve(idbConn);
+      };
+      r.onerror = function () { idbOpening = null; reject(r.error); };
     });
+    return idbOpening;
   }
+  idbOpen().catch(function () {});
   function stashRom(bytes, name) {
     return idbOpen().then(function (db) {
       return new Promise(function (resolve, reject) {
@@ -811,6 +823,9 @@
       }
       startRom(bytes, name, true);
     },
+    // Changing the sprite during a game (randomizer/app.js)
+    runningRom: function () { return window.EJS_emulator && currentRom ? currentRom : null; },
+    setRunningRom: function (bytes) { if (currentRom) currentRom.bytes = bytes; },
   });
 
   // ── volume that works on iPhone/iPad ──────────────────────────────────────
@@ -859,19 +874,24 @@
   // launch offers to reopen that game exactly where it was.
   var RESUME_KEY = 'resume-state';
   var RESUME_DAYS = 30;        // how long a saved game is offered
-  var AUTOSAVE_MS = 60000;     // also saved this often while playing
+  var AUTOSAVE_MS = 30000;     // also saved this often while playing
   var pausedForBackground = false;
   var currentRom = null;       // { bytes, name } of the game that's running
   var pendingState = null;     // a state to load as soon as the game starts
   var switching = false;       // reloading to switch games
+  function idbPutNow(db, key, val) {
+    return new Promise(function (resolve) {
+      var tx = db.transaction('kv', 'readwrite');
+      tx.objectStore('kv').put(val, key);
+      tx.oncomplete = tx.onerror = tx.onabort = function () { resolve(); };
+      if (tx.commit) try { tx.commit(); } catch (e) {}   // don't wait for the next task: the page may be closing
+    });
+  }
   function idbPut(key, val) {
-    return idbOpen().then(function (db) {
-      return new Promise(function (resolve) {
-        var tx = db.transaction('kv', 'readwrite');
-        tx.objectStore('kv').put(val, key);
-        tx.oncomplete = tx.onerror = function () { resolve(); };
-      });
-    }).catch(function () {});
+    // With the connection already open the write starts right now, inside the
+    // close event, instead of after another round trip the page won't live to see.
+    if (idbConn) { try { return idbPutNow(idbConn, key, val); } catch (e) {} }
+    return idbOpen().then(function (db) { return idbPutNow(db, key, val); }).catch(function () {});
   }
   function idbTake(key) {
     return idbOpen().then(function (db) {
@@ -897,25 +917,30 @@
   // until a different game starts, and offered with a Resume button.
   function saveSpot() {
     var ejs = window.EJS_emulator;
-    if (switching || !ejs || !ejs.gameManager || !currentRom) return;
+    // pendingState: the saved spot hasn't been loaded yet; don't overwrite it with the title screen
+    if (switching || pendingState || !ejs || !ejs.gameManager || !currentRom) return;
     try {
       var state = ejs.gameManager.getState();
       if (state && state.length) idbPut(RESUME_KEY, {
         state: state, rom: currentRom.bytes, name: currentRom.name, at: Date.now() });
     } catch (e) {}
   }
+  // Every 30 s while the game runs, even when the window is covered (on a
+  // desktop the tracker windows can cover it for a whole run).
   setInterval(function () {
     var ejs = window.EJS_emulator;
-    if (document.visibilityState === 'visible' && ejs && !ejs.paused) saveSpot();
+    if (ejs && !ejs.paused) saveSpot();
   }, AUTOSAVE_MS);
   function leaving(e) {
     var ejs = window.EJS_emulator;
-    if (switching || !ejs || !ejs.gameManager || ejs.paused) return;
+    if (switching || !ejs || !ejs.gameManager) return;
+    if (pausedForBackground) return;            // already saved when it was put away
+    saveSpot();                                 // always, even if the game was paused
+    if (ejs.paused) return;
     // On a desktop the window counts as hidden when it's minimized or fully
     // covered, which with tracker windows on top can happen mid-run; don't
-    // pause the game for that. Closing the page still saves the spot.
+    // pause the game for that.
     if (window.UnifiedDesktop && window.UnifiedDesktop.active() && !(e && e.type === 'pagehide')) return;
-    saveSpot();
     try { ejs.pause(); pausedForBackground = true; } catch (e) {}
   }
   // Start screen: "Resume last game" with the seed's name and when it was played
@@ -953,12 +978,27 @@
     if (document.visibilityState === 'hidden') leaving(); else back();
   });
   window.addEventListener('pagehide', leaving);
+  // Closing a laptop tab or window: beforeunload comes first and gives the save
+  // the most time. (The game isn't paused here, in case the close is cancelled.)
+  window.addEventListener('beforeunload', function () { if (!pausedForBackground) saveSpot(); });
   window.addEventListener('pageshow', function (e) { if (e.persisted) back(); });
-  function loadPendingState() {
+  function loadPendingState(tries) {
     var ejs = window.EJS_emulator, st = pendingState;
-    pendingState = null;
-    if (!st || !ejs || !ejs.gameManager) return;
-    try { ejs.gameManager.loadState(new Uint8Array(st)); AlttpBridge.invalidate(); } catch (e) {}
+    if (!st) return;
+    tries = tries || 0;
+    // A slow machine may not have the core ready yet: try again for a few seconds.
+    if (!ejs || !ejs.gameManager) {
+      if (tries < 10) setTimeout(function () { loadPendingState(tries + 1); }, 500);
+      return;
+    }
+    try {
+      ejs.gameManager.loadState(new Uint8Array(st));
+      pendingState = null;
+      AlttpBridge.invalidate();
+    } catch (e) {
+      if (tries < 10) setTimeout(function () { loadPendingState(tries + 1); }, 500);
+      else pendingState = null;
+    }
   }
 
   // ── keep the mouse free ───────────────────────────────────────────────────
@@ -975,6 +1015,45 @@
     });
   })();
 
+  // ── keep controls and graphics settings across seeds ──────────────────────
+  // EmulatorJS saves the control mapping and its settings (shaders, video,
+  // etc.) per game name, and every seed is a new name, so they reset each
+  // time. Keep the latest copy under one key and hand it to each new game.
+  // (The game name stays per seed so in-game saves don't mix between seeds.)
+  var EMU_SHARED = 'unified-emu-settings';
+  function emuKey(gameName) { return 'ejs-1-snes-' + gameName + '-settings'; }
+  function seedEmuSettings(key) {
+    try {
+      if (localStorage.getItem(key)) return false;    // this seed has its own already
+      var o = JSON.parse(localStorage.getItem(EMU_SHARED) || 'null');
+      if (!o || typeof o !== 'object') return false;
+      o.cheats = [];                                  // cheats belong to one game
+      localStorage.setItem(key, JSON.stringify(o));
+      return true;
+    } catch (e) { return false; }
+  }
+  function shareEmuSettings(key) {
+    try { var v = localStorage.getItem(key); if (v) localStorage.setItem(EMU_SHARED, v); } catch (e) {}
+  }
+  function hookEmuSettings(ejs, fallbackKey) {
+    var key = (typeof ejs.getLocalStorageKey === 'function') ? ejs.getLocalStorageKey() : fallbackKey;
+    // Normally seeded before boot; if EmulatorJS named the key differently, seed now.
+    if (key !== fallbackKey && seedEmuSettings(key) && typeof ejs.loadSettings === 'function') {
+      try { ejs.loadSettings(); } catch (e) {}
+    }
+    var hasShared = false;
+    try { hasShared = !!localStorage.getItem(EMU_SHARED); } catch (e) {}
+    if (!hasShared) shareEmuSettings(key);            // first run: adopt this seed's settings
+    if (typeof ejs.saveSettings !== 'function' || ejs.__unifiedShared) return;
+    var save = ejs.saveSettings;
+    ejs.saveSettings = function () {
+      var r = save.apply(this, arguments);
+      shareEmuSettings(key);
+      return r;
+    };
+    ejs.__unifiedShared = true;
+  }
+
   function bootEmulator(file) {
     $('placeholder').remove();
     window.EJS_player = '#game';
@@ -982,15 +1061,18 @@
     window.EJS_pathtodata = EJS_CDN;
     window.EJS_gameUrl = file;           // EmulatorJS accepts a File object
     window.EJS_gameName = file.name.replace(/\.[^.]+$/, '');
+    var settingsKey = emuKey(window.EJS_gameName);
+    seedEmuSettings(settingsKey);        // before boot, so the core starts with them
     window.EJS_startOnLoaded = true;
     window.EJS_color = '#1f6f3a';
     window.EJS_defaultOptions = { lockMouse: 'disabled' };
     window.EJS_onGameStart = function () {
       if (window.EJS_emulator) window.EJS_emulator.enableMouseLock = false;
+      if (window.EJS_emulator) hookEmuSettings(window.EJS_emulator, settingsKey);
       AlttpBridge.invalidate();
       // Give the core a moment to initialise WRAM before the first locate.
       setTimeout(function () { AlttpBridge.read(0xF50010, 1); }, 1500);
-      if (pendingState) setTimeout(loadPendingState, 800);
+      if (pendingState) setTimeout(function () { loadPendingState(0); }, 800);
       else idbTake(RESUME_KEY);   // a new game: the older saved spot no longer applies (it saves its own)
     };
     var s = document.createElement('script');

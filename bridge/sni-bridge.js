@@ -224,8 +224,61 @@
   // Called when the emulator restarts / loads a state: force a re-locate.
   function invalidate() { if (state.mode !== 'idle') { state.mode = 'idle'; state.ptr = -1; emit(); } }
 
+  // ── writes (used to change Link's sprite during a game) ──────────────────
+  // WRAM: only in live mode (a snapshot copy can't be written back).
+  function writeWram(addr, bytes) {
+    const w = wramView();
+    if (state.mode !== 'live' || !w) return false;
+    const off = addr - WRAM_BASE;
+    if (off < 0 || off + bytes.length > WRAM_SIZE) return false;
+    w.set(bytes, off);
+    return true;
+  }
+
+  // Find a copy of `rom` in the core's memory whose bytes [lo, hi) are intact.
+  // The ROM's internal header (title, map mode) at 0x7FC0 is the needle.
+  function findRomCopies(h, rom, lo, hi) {
+    const NEEDLE_AT = 0x7FC0, needle = rom.subarray(NEEDLE_AT, NEEDLE_AT + 32);
+    const found = [];
+    const check = (p) => {
+      const base = p - NEEDLE_AT;
+      if (base < 0 || base + hi > h.length) return;
+      for (let i = 0; i < 32; i++) if (h[p + i] !== needle[i]) return;
+      for (let i = lo; i < hi; i++) if (h[base + i] !== rom[i]) return;
+      found.push(base);
+    };
+    // Allocations are 8-aligned, so search 32-bit words first (fast)…
+    if (h.byteOffset % 4 === 0) {
+      const w = new Uint32Array(h.buffer, h.byteOffset, h.length >> 2);
+      const first = needle[0] | (needle[1] << 8) | (needle[2] << 16) | (needle[3] << 24);
+      for (let i = w.indexOf(first >>> 0); i >= 0; i = w.indexOf(first >>> 0, i + 1)) check(i * 4);
+    }
+    // …and every byte if that found nothing.
+    if (!found.length) {
+      for (let p = h.indexOf(needle[0]); p >= 0; p = h.indexOf(needle[0], p + 1)) check(p);
+    }
+    return found;
+  }
+
+  // Change the running game's ROM to `next` (same size, header stripped):
+  // only the bytes that differ are written, in every intact copy found.
+  // Returns the number of copies changed (0: not found).
+  function patchRom(next) {
+    const h = heap(), old = state.rom;
+    if (!h || !old || !next || next.length !== old.length) return 0;
+    let lo = -1, hi = -1;
+    for (let i = 0; i < old.length; i++) if (old[i] !== next[i]) { if (lo < 0) lo = i; hi = i + 1; }
+    if (lo < 0) return -1;   // nothing to change
+    const copies = findRomCopies(h, old, lo, hi);
+    copies.forEach((base) => {
+      for (let i = lo; i < hi; i++) if (old[i] !== next[i]) h[base + i] = next[i];
+    });
+    if (copies.length) state.rom = next;
+    return copies.length;
+  }
+
   window.AlttpBridge = {
-    read, ready, setRom, invalidate, status,
+    read, ready, setRom, invalidate, status, writeWram, patchRom,
     deviceName: 'EmulatorJS (built-in)',
     onStatus(fn) { state.listeners.add(fn); return () => state.listeners.delete(fn); },
     // Debug helper: AlttpBridge.peek(0x7EF340, 16)
