@@ -208,7 +208,11 @@
     var mapBtn = document.createElement('button');
     mapBtn.id = 'phone-map-btn'; mapBtn.type = 'button';
     mapBtn.title = 'Map settings'; mapBtn.setAttribute('aria-label', 'Map settings');
-    mapBtn.innerHTML = '&#128506;&#65039;';
+    // a folded-map outline in the header's own colors (not an emoji), + label
+    mapBtn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" ' +
+      'stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round">' +
+      '<path d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20z"/><path d="M9 4v13.5M15 6.5V20"/></svg>' +
+      '<span class="map-lbl">Map</span>';
     mapBtn.addEventListener('click', function (e) {
       e.stopPropagation();
       try {
@@ -217,7 +221,8 @@
         mapBtn.classList.toggle('on', d.getElementById('settings-panel').classList.contains('open'));
       } catch (x) {}
     });
-    header.appendChild(mapBtn);
+    // Reroll, Map, then the status dots, then ⚙
+    header.insertBefore(mapBtn, $('pad-status'));
     header.appendChild(gear);
     // the randomizer panel sits between the header (which grows when ⚙ opens)
     // and the tracker toggles, so the toggles stay usable while it's open
@@ -283,8 +288,15 @@
     '#phone-zoom button { min-height: 36px; min-width: 40px; padding: 0; font-size: 22px; line-height: 1;',
     '  border: 1px solid var(--line); border-radius: 8px; background: #0d1117; color: var(--text); }',
     '#phone-map-btn { display: none; }',
-    'body.phone.phone-map-tab #phone-map-btn { display: inline-block; min-width: 44px; min-height: 34px; font-size: 18px; padding: 0 8px; }',
-    '#phone-map-btn.on { border-color: var(--accent); }',
+    'body.phone.phone-map-tab #phone-map-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px;',
+    '  min-width: 44px; min-height: 34px; padding: 0 10px; color: var(--text); }',
+    '#phone-map-btn svg { display: block; flex: none; }',
+    '#phone-map-btn.on { border-color: var(--accent); color: var(--accent); background: #12261a; }',
+    '@media (max-width: 420px) { body.phone #phone-map-btn .map-lbl { display: none; } }',
+    // right-aligned group: Map leads it in Lite (no Reroll); Reroll leads it in Full
+    'body.phone.phone-map-tab #phone-map-btn { margin-left: auto; }',
+    'body.phone #reroll-btn ~ #phone-map-btn { margin-left: 0 !important; }',
+    'body.phone.phone-map-tab #phone-map-btn ~ #phone-gear { margin-left: 0; }',
     'body.phone #frames { display: flex !important; flex-direction: column; flex: 1; min-height: 0; }',
     'body.phone #frames.items-only #items-wrap { flex: 1 !important; height: auto !important; }',
     'body.phone #frames.items-only #map-frame { display: none !important; }',
