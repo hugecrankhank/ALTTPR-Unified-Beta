@@ -74,6 +74,45 @@
     } else if (!on && st) st.remove();
   }
 
+  // ── map Settings panel: fits the frame, scrolls, and closes on a tap ───────
+  // Hutch's panel hangs below his ⚙ Settings button with no height limit, so in
+  // the phone's map frame it ran off the bottom; and it closes on a mouse click
+  // outside it, which a tap on iOS often doesn't produce, so it seemed stuck.
+  var MAP_CSS = [
+    '#settings-panel { max-height: calc(100vh - 56px); overflow-y: auto; -webkit-overflow-scrolling: touch;',
+    '  overscroll-behavior: contain; max-width: calc(100vw - 16px); box-sizing: border-box; }',
+    '#settings-btn { font-size: 14px !important; padding: 4px 10px !important; }',
+    '#phone-map-close { display: block; width: 100%; margin: 0 0 8px; padding: 8px; font-size: 14px; font-weight: 600;',
+    '  background: #1f6f3a; color: #fff; border: 1px solid #2a8a4a; border-radius: 6px; position: sticky; top: -8px; z-index: 1; }'
+  ].join('\n');
+  function styleMap() {
+    var d;
+    try { d = $('map-frame').contentDocument; } catch (e) { return; }
+    if (!d || !d.head) return;
+    var st = d.getElementById('phone-map-css');
+    if (on && !st) {
+      st = d.createElement('style'); st.id = 'phone-map-css'; st.textContent = MAP_CSS;
+      d.head.appendChild(st);
+    } else if (!on && st) st.remove();
+    var panel = d.getElementById('settings-panel'), btn = d.getElementById('settings-btn');
+    if (!panel || !btn || d.__phoneMapHooks) return;
+    d.__phoneMapHooks = true;
+    var isOpen = function () { return panel.classList.contains('open'); };
+    // a Close button at the top of the panel (only in the phone layout)
+    var close = d.createElement('button');
+    close.id = 'phone-map-close'; close.type = 'button'; close.textContent = '\u2715 Close';
+    close.addEventListener('click', function (e) { e.stopPropagation(); if (isOpen()) btn.click(); });
+    panel.insertBefore(close, panel.firstChild);
+    var sync = function () { close.style.display = on ? '' : 'none'; };
+    sync(); d.__phoneMapSync = sync;
+    // any tap outside the panel closes it (his own handler listens for the mouse only)
+    d.addEventListener('pointerdown', function (e) {
+      if (!on || !isOpen()) return;
+      if (panel.contains(e.target) || btn.contains(e.target)) return;
+      btn.click();
+    }, true);
+  }
+
   function refit() {
     // the page's fitItems / fitMap follow window resizes (tablet.js ignores ours)
     setTimeout(function () { window.dispatchEvent(new Event('resize')); }, 0);
@@ -158,6 +197,8 @@
     document.body.classList.toggle('phone', on);
     document.body.classList.remove('phone-menu');
     styleItems();
+    styleMap();
+    try { var md = $('map-frame').contentDocument; if (md && md.__phoneMapSync) md.__phoneMapSync(); } catch (e) {}
     if (on) {
       var saved = null;
       try { saved = localStorage.getItem(TAB_KEY); } catch (e) {}
@@ -221,7 +262,7 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     apply();
-    $('map-frame').addEventListener('load', function () { applyWorld(); refit(); });
+    $('map-frame').addEventListener('load', function () { applyWorld(); styleMap(); refit(); });
     $('items-frame').addEventListener('load', function () { styleItems(); refit(); });
     var sel = $('layout');
     if (sel) sel.addEventListener('change', function () { setTimeout(apply, 0); });
