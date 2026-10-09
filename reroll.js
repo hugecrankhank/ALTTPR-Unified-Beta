@@ -30,7 +30,8 @@
     b.id = 'reroll-btn';
     b.type = 'button';
     b.title = 'Reroll: a new seed with the same settings';
-    b.innerHTML = '&#127922; Reroll';
+    b.innerHTML = '&#127922;<span class="reroll-lbl"> Reroll</span>';
+    b.setAttribute('aria-label', 'Reroll');
     b.addEventListener('click', reroll);
     split.parentNode.insertBefore(b, split.nextSibling);
     var st = document.createElement('style');

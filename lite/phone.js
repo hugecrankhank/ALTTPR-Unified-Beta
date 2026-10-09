@@ -78,10 +78,21 @@
   // Hutch's panel hangs below his ⚙ Settings button with no height limit, so in
   // the phone's map frame it ran off the bottom; and it closes on a mouse click
   // outside it, which a tap on iOS often doesn't produce, so it seemed stuck.
+  // On phones the map's own top bar is gone, to give the map that row: its
+  // Layout picker does nothing with one world showing, −/+ move to the tab row
+  // and Settings to the 🗺 button in the header. Entrance-shuffle seeds keep the
+  // bar for Hutch's Connectors / Notes / Checks controls only.
   var MAP_CSS = [
-    '#settings-panel { max-height: calc(100vh - 56px); overflow-y: auto; -webkit-overflow-scrolling: touch;',
-    '  overscroll-behavior: contain; max-width: calc(100vw - 16px); box-sizing: border-box; }',
-    '#settings-btn { font-size: 14px !important; padding: 4px 10px !important; }',
+    '#topbar:not(.ent-rows) { display: none !important; }',
+    '#topbar > span.tb-label, #layout-sel, #topbar > .tb-sep:not([id]), #topbar > .zoom-btn:not([id]),',
+    '#zoom-label, #topbar .tb-break { display: none !important; }',
+    '#settings-wrap.phone-floating { position: fixed !important; top: 4px; right: 4px; z-index: 50; margin: 0 !important; }',
+    '#settings-wrap.phone-floating #settings-btn { display: none !important; }',
+    '#settings-wrap.phone-floating #settings-panel { top: 0 !important; }',
+    '#settings-panel { max-height: calc(100vh - 8px); overflow-y: auto; -webkit-overflow-scrolling: touch;',
+    '  overscroll-behavior: contain; max-width: calc(100vw - 8px); box-sizing: border-box; }',
+    // zoomed in with +, the map can be panned sideways too
+    '#maps-outer { overflow-x: auto !important; }',
     '#phone-map-close { display: block; width: 100%; margin: 0 0 8px; padding: 8px; font-size: 14px; font-weight: 600;',
     '  background: #1f6f3a; color: #fff; border: 1px solid #2a8a4a; border-radius: 6px; position: sticky; top: -8px; z-index: 1; }'
   ].join('\n');
@@ -94,6 +105,11 @@
       st = d.createElement('style'); st.id = 'phone-map-css'; st.textContent = MAP_CSS;
       d.head.appendChild(st);
     } else if (!on && st) st.remove();
+    var wrap = d.getElementById('settings-wrap'), topbar = d.getElementById('topbar');
+    if (wrap && topbar) {
+      if (on && wrap.parentNode !== d.body) { wrap.classList.add('phone-floating'); d.body.appendChild(wrap); }
+      else if (!on && wrap.parentNode === d.body) { wrap.classList.remove('phone-floating'); topbar.appendChild(wrap); }
+    }
     var panel = d.getElementById('settings-panel'), btn = d.getElementById('settings-btn');
     if (!panel || !btn || d.__phoneMapHooks) return;
     d.__phoneMapHooks = true;
@@ -105,6 +121,12 @@
     panel.insertBefore(close, panel.firstChild);
     var sync = function () { close.style.display = on ? '' : 'none'; };
     sync(); d.__phoneMapSync = sync;
+    // the header's 🗺 button shows whether the panel is open
+    try {
+      new d.defaultView.MutationObserver(function () {
+        var mb = $('phone-map-btn'); if (mb) mb.classList.toggle('on', isOpen());
+      }).observe(panel, { attributes: true, attributeFilter: ['class'] });
+    } catch (e) {}
     // any tap outside the panel closes it (his own handler listens for the mouse only)
     d.addEventListener('pointerdown', function (e) {
       if (!on || !isOpen()) return;
@@ -128,6 +150,7 @@
       b.setAttribute('aria-selected', String(sel));
     });
     if (on) $('frames').className = tab === 'items' ? 'items-only' : 'map-only';
+    document.body.classList.toggle('phone-map-tab', tab !== 'items');
     applyWorld();
     refit();
   }
@@ -146,6 +169,18 @@
       b.addEventListener('click', function () { select(t[0]); });
       bar.appendChild(b);
     });
+    // − / + for the map (Hutch's zoom), at the end of the tab row on map tabs
+    var zoom = document.createElement('div');
+    zoom.id = 'phone-zoom';
+    [['\u2212', -1, 'Zoom out'], ['+', 1, 'Zoom in']].forEach(function (z) {
+      var zb = document.createElement('button');
+      zb.type = 'button'; zb.textContent = z[0]; zb.title = z[2];
+      zb.addEventListener('click', function () {
+        try { var w = $('map-frame').contentWindow; if (w.changeZoom) w.changeZoom(z[1]); } catch (e) {}
+      });
+      zoom.appendChild(zb);
+    });
+    bar.appendChild(zoom);
     var aside = document.querySelector('aside');
     aside.insertBefore(bar, $('frames'));
     // Refit the panel whenever its space changes size for any reason: the ⚙ menu
@@ -169,6 +204,20 @@
       gear.setAttribute('aria-expanded', String(open));
     });
     var header = document.querySelector('header');
+    // 🗺 Map settings in the header (opens Hutch's map Settings panel)
+    var mapBtn = document.createElement('button');
+    mapBtn.id = 'phone-map-btn'; mapBtn.type = 'button';
+    mapBtn.title = 'Map settings'; mapBtn.setAttribute('aria-label', 'Map settings');
+    mapBtn.innerHTML = '&#128506;&#65039;';
+    mapBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      try {
+        var d = $('map-frame').contentDocument, b = d.getElementById('settings-btn');
+        if (b) b.click();
+        mapBtn.classList.toggle('on', d.getElementById('settings-panel').classList.contains('open'));
+      } catch (x) {}
+    });
+    header.appendChild(mapBtn);
     header.appendChild(gear);
     // the randomizer panel sits between the header (which grows when ⚙ opens)
     // and the tracker toggles, so the toggles stay usable while it's open
@@ -224,20 +273,29 @@
     'body.phone aside { width: 100% !important; border-left: 0; border-top: 1px solid var(--line);',
     '  display: flex !important; flex-direction: column; min-height: 0; padding-bottom: env(safe-area-inset-bottom); }',
     'body.phone aside .tabs { display: none !important; }',
-    'body.phone #phone-tabs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;',
+    'body.phone #phone-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto;',
     '  background: var(--panel); border-bottom: 1px solid var(--line); }',
     '#phone-tabs button { min-height: 44px; border: 0; border-radius: 0; background: transparent; color: var(--dim);',
     '  font-size: 15px; border-bottom: 3px solid transparent; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }',
     '#phone-tabs button.on { color: var(--text); border-bottom-color: var(--accent); }',
+    '#phone-zoom { display: none; align-items: center; gap: 6px; padding: 0 8px; }',
+    'body.phone-map-tab #phone-zoom { display: flex; }',
+    '#phone-zoom button { min-height: 36px; min-width: 40px; padding: 0; font-size: 22px; line-height: 1;',
+    '  border: 1px solid var(--line); border-radius: 8px; background: #0d1117; color: var(--text); }',
+    '#phone-map-btn { display: none; }',
+    'body.phone.phone-map-tab #phone-map-btn { display: inline-block; min-width: 44px; min-height: 34px; font-size: 18px; padding: 0 8px; }',
+    '#phone-map-btn.on { border-color: var(--accent); }',
     'body.phone #frames { display: flex !important; flex-direction: column; flex: 1; min-height: 0; }',
     'body.phone #frames.items-only #items-wrap { flex: 1 !important; height: auto !important; }',
     'body.phone #frames.items-only #map-frame { display: none !important; }',
     'body.phone #frames.map-only #items-wrap { display: none !important; }',
     'body.phone #frames.map-only #map-frame { display: block !important; flex: 1; height: auto !important; min-height: 0; }',
     // header: title, status dots and ⚙; everything else behind the ⚙
-    'body.phone:not(.phone-menu) header > :not(h1):not(#pad-status):not(#link-status):not(#phone-gear):not(#reroll-btn) { display: none !important; }',
+    'body.phone:not(.phone-menu) header > :not(h1):not(#pad-status):not(#link-status):not(#phone-gear):not(#reroll-btn):not(#phone-map-btn) { display: none !important; }',
     // 🎲 Reroll stays in the header next to ⚙
     'body.phone #reroll-btn { margin-left: auto; min-height: 34px; }',
+    // narrower phones: 🎲 alone, so the header stays on one line
+    '@media (max-width: 420px) { body.phone #reroll-btn .reroll-lbl { display: none; } body.phone #reroll-btn { min-width: 44px; } }',
     'body.phone #reroll-btn ~ #phone-gear { margin-left: 0; }',
     'body.phone #pad-status span, body.phone #link-status span { display: none; }',
     'body.phone header { gap: 8px 12px; padding-top: max(6px, env(safe-area-inset-top)) !important; padding-bottom: 6px; }',
