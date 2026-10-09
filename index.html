@@ -205,6 +205,12 @@
   #placeholder h2 { color: var(--text); margin: 0; font-size: 20px; }
   #placeholder p { max-width: 460px; margin: 0; }
   #placeholder a { color: var(--accent); }
+  #resume-box { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: 8px; }
+  #resume-btn { background: #1f6f3a; border-color: #2a8a4a; color: #fff; font-size: 17px; font-weight: 600;
+    padding: 12px 26px; border-radius: 10px; }
+  #resume-box small { color: var(--text); font-size: 13px; }
+  #resume-discard { background: transparent; border: 0; color: var(--dim); font-size: 12px; text-decoration: underline;
+    padding: 2px 6px; }
 
   aside { width: var(--tracker-w, 548px); border-left: 1px solid var(--line); display: flex;
     flex-direction: column; min-height: 0; background: #000; }
@@ -526,7 +532,7 @@
           <input type="file" id="r-msu-input" multiple>
           <button id="r-msu-clear" hidden title="Use the game's own music again">Off</button>
         </div>
-        <span id="r-msu-name">Off</span>
+        <span id="r-msu-name">Game's own music</span>
       </div>
       <label class="f" title="Leave empty to use the built-in relay for alttpr.com seeds, or enter your own (see the README)">alttpr.com relay
         <input type="url" id="r-relay" placeholder="https://….workers.dev" autocomplete="off" spellcheck="false">
@@ -610,7 +616,7 @@
 <script src="portal.js"></script>
 <script src="desktop.js"></script>
 <script src="phone.js"></script>
-<script src="offline.js"></script>
+<script src="reroll.js"></script><script src="offline.js"></script>
 <script>
 (function () {
   'use strict';
@@ -1009,14 +1015,12 @@
   }
   takeStashedRom().then(function (p) {
     if (p && p.bytes && !window.EJS_emulator) { startRom(new Uint8Array(p.bytes), p.name, false); return; }
-    // No game handed over: if iOS closed the page while a game was running in
-    // the background, offer to reopen it where it was.
-    idbTake(RESUME_KEY).then(function (r) {
+    // No game handed over: if a game was saved when the app was last closed,
+    // offer to pick it up where it was (a Resume button on the start screen).
+    idbGet(RESUME_KEY).then(function (r) {
       if (!r || !r.rom || !r.state || window.EJS_emulator) return;
-      if (Date.now() - r.at > 7 * 864e5) return;
-      if (!confirm('Your game was closed while you were in another app. Pick up where you left off?')) return;
-      pendingState = r.state;
-      startRom(new Uint8Array(r.rom), r.name, true);
+      if (Date.now() - r.at > RESUME_DAYS * 864e5) return;
+      showResume(r);
     });
   });
 
@@ -1082,6 +1086,8 @@
   // restart the audio and unpause. If iOS closed the page instead, the next
   // launch offers to reopen that game exactly where it was.
   var RESUME_KEY = 'resume-state';
+  var RESUME_DAYS = 30;        // how long a saved game is offered
+  var AUTOSAVE_MS = 60000;     // also saved this often while playing
   var pausedForBackground = false;
   var currentRom = null;       // { bytes, name } of the game that's running
   var pendingState = null;     // a state to load as soon as the game starts
@@ -1105,6 +1111,31 @@
       });
     }).catch(function () { return null; });
   }
+  function idbGet(key) {
+    return idbOpen().then(function (db) {
+      return new Promise(function (resolve) {
+        var g = db.transaction('kv', 'readonly').objectStore('kv').get(key);
+        g.onsuccess = function () { resolve(g.result || null); };
+        g.onerror = function () { resolve(null); };
+      });
+    }).catch(function () { return null; });
+  }
+  // Save where the game is, so closing the app (or iOS closing it) never loses
+  // the run: on the way out, and every minute while playing. The save is kept
+  // until a different game starts, and offered with a Resume button.
+  function saveSpot() {
+    var ejs = window.EJS_emulator;
+    if (switching || !ejs || !ejs.gameManager || !currentRom) return;
+    try {
+      var state = ejs.gameManager.getState();
+      if (state && state.length) idbPut(RESUME_KEY, {
+        state: state, rom: currentRom.bytes, name: currentRom.name, at: Date.now() });
+    } catch (e) {}
+  }
+  setInterval(function () {
+    var ejs = window.EJS_emulator;
+    if (document.visibilityState === 'visible' && ejs && !ejs.paused) saveSpot();
+  }, AUTOSAVE_MS);
   function leaving(e) {
     var ejs = window.EJS_emulator;
     if (switching || !ejs || !ejs.gameManager || ejs.paused) return;
@@ -1112,12 +1143,30 @@
     // covered, which with tracker windows on top can happen mid-run; don't
     // pause the game for that. Closing the page still saves the spot.
     if (window.UnifiedDesktop && window.UnifiedDesktop.active() && !(e && e.type === 'pagehide')) return;
-    try {
-      var state = ejs.gameManager.getState();
-      if (state && state.length && currentRom) idbPut(RESUME_KEY, {
-        state: state, rom: currentRom.bytes, name: currentRom.name, at: Date.now() });
-    } catch (e) {}
+    saveSpot();
     try { ejs.pause(); pausedForBackground = true; } catch (e) {}
+  }
+  // Start screen: "Resume last game" with the seed's name and when it was played
+  function showResume(r) {
+    var ph = $('placeholder');
+    if (!ph) return;
+    var mins = Math.round((Date.now() - r.at) / 60000);
+    var ago = mins < 2 ? 'just now' : mins < 60 ? mins + ' minutes ago' :
+      mins < 2880 ? Math.round(mins / 60) + ' hours ago' : Math.round(mins / 1440) + ' days ago';
+    var box = document.createElement('div');
+    box.id = 'resume-box';
+    box.innerHTML = '<button type="button" id="resume-btn">&#9654; Resume last game</button>' +
+      '<small></small><button type="button" id="resume-discard" title="Forget this saved game">Discard</button>';
+    box.querySelector('small').textContent = r.name.replace(/\.[^.]+$/, '') + ' \u00b7 played ' + ago;
+    ph.insertBefore(box, ph.firstChild);
+    $('resume-btn').addEventListener('click', function () {
+      pendingState = r.state;
+      startRom(new Uint8Array(r.rom), r.name, true);
+    });
+    $('resume-discard').addEventListener('click', function () {
+      if (!confirm('Forget this saved game? You can\u2019t resume it afterwards.')) return;
+      idbTake(RESUME_KEY); box.remove();
+    });
   }
   function back() {
     applyVolume();
@@ -1126,8 +1175,7 @@
       pausedForBackground = false;
       try { ejs.play(); } catch (e) {}
     }
-    // still here, so the saved state isn't needed
-    idbTake(RESUME_KEY);
+    // the saved spot is kept: it's offered next time the app opens
   }
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'hidden') leaving(); else back();
@@ -1171,7 +1219,7 @@
       // Give the core a moment to initialise WRAM before the first locate.
       setTimeout(function () { AlttpBridge.read(0xF50010, 1); }, 1500);
       if (pendingState) setTimeout(loadPendingState, 800);
-      else idbTake(RESUME_KEY);   // a new game: any older saved spot no longer applies
+      else idbTake(RESUME_KEY);   // a new game: the older saved spot no longer applies (it saves its own)
     };
     var s = document.createElement('script');
     s.src = EJS_CDN + 'loader.js';

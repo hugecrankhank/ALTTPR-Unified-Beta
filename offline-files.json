@@ -1,6 +1,6 @@
 {
  "edition": "full",
- "version": "beta-f855e6e-3074c3f4af9f",
+ "version": "beta-1a874ab-be620068d8a1",
  "cache": "alttpr-unified-full-v1",
  "files": [
   "./",
@@ -113,6 +113,7 @@
   "randomizer/sprite.js",
   "randomizer/worker.js",
   "randomizer/worlds/index.js",
+  "reroll.js",
   "sprites.json",
   "sw.js",
   "tablet.js",

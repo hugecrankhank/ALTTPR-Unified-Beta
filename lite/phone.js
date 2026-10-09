@@ -185,7 +185,10 @@
     'body.phone #frames.map-only #items-wrap { display: none !important; }',
     'body.phone #frames.map-only #map-frame { display: block !important; flex: 1; height: auto !important; min-height: 0; }',
     // header: title, status dots and ⚙; everything else behind the ⚙
-    'body.phone:not(.phone-menu) header > :not(h1):not(#pad-status):not(#link-status):not(#phone-gear) { display: none !important; }',
+    'body.phone:not(.phone-menu) header > :not(h1):not(#pad-status):not(#link-status):not(#phone-gear):not(#reroll-btn) { display: none !important; }',
+    // 🎲 Reroll stays in the header next to ⚙
+    'body.phone #reroll-btn { margin-left: auto; min-height: 34px; }',
+    'body.phone #reroll-btn ~ #phone-gear { margin-left: 0; }',
     'body.phone #pad-status span, body.phone #link-status span { display: none; }',
     'body.phone header { gap: 8px 12px; padding-top: max(6px, env(safe-area-inset-top)) !important; padding-bottom: 6px; }',
     'body.phone header h1 { font-size: 14px; }',

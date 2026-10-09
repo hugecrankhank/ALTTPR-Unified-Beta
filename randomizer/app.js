@@ -780,7 +780,7 @@ function packName(files) {
 }
 
 function showMsu(name) {
-  $('r-msu-name').textContent = msu.count ? `${name} (${msu.count} tracks)` : 'Off';
+  $('r-msu-name').textContent = msu.count ? `${name} (${msu.count} tracks)` : "Game's own music";
   $('r-msu-clear').hidden = !msu.count;
 }
 
