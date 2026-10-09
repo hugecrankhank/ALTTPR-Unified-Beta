@@ -436,7 +436,7 @@ async function generateAndPlay() {
     console.error(e);
     status(String(e.message || e), 'bad');
   } finally {
-    btns.forEach((b) => { b.disabled = false; });
+    btn.disabled = false;
   }
 }
 
@@ -809,15 +809,21 @@ async function randomSprite() {
   const btns = [$('r-sprite-random'), $('sprite-btn')].filter(Boolean);
   if (btns.some((b) => b.disabled)) return;   // one is being fetched already
   btns.forEach((b) => { b.disabled = true; });
+  const hb = $('sprite-btn');
+  if (hb) hb.classList.add('busy');
   try {
     status('Picking a random sprite…');
     const list = (await loadList()).filter((e) => !isPlainLink(e));
     const entry = list[Math.floor(Math.random() * list.length)];
     await useLibrarySprite(entry);
   } catch (e) {
-    status(String(e.message || e), 'bad');
+    const msg = String(e.message || e);
+    status(msg, 'bad');
+    // the Randomizer bar is usually folded away during a game: say it here too
+    if (hb && !document.body.classList.contains('rando-open')) alert(msg);
   } finally {
-    btn.disabled = false;
+    btns.forEach((b) => { b.disabled = false; });
+    if (hb) hb.classList.remove('busy');
   }
 }
 
@@ -849,6 +855,12 @@ function buildSpriteButton() {
     // phones: stays in the header beside Reroll, icon only
     'body.phone #sprite-btn { min-width: 44px; min-height: 34px; padding: 0 8px; }',
     'body.phone #sprite-btn .sb-lbl { display: none; }',
+    // with the Sprite button too, Reroll and Map go icon-only on phones so the
+    // header stays one line (⚙ included)
+    'body.phone #reroll-btn .reroll-lbl, body.phone #phone-map-btn .map-lbl { display: none; }',
+    'body.phone #reroll-btn { min-width: 44px; }',
+    '#sprite-btn.busy .sb-head { animation: sb-spin .6s linear infinite; }',
+    '@keyframes sb-spin { to { transform: rotate(360deg); } }',
   ].join('\n');
   document.head.appendChild(st);
 }

@@ -36,7 +36,17 @@ export function loadList() {
 
 /** Download a sprite file: Uint8Array. */
 export async function fetchSprite(entry) {
-  const r = await fetch(entry.file);
+  // a stalled download must not leave the Sprite button waiting forever
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  const t = ctl && setTimeout(() => ctl.abort(), 15000);
+  let r;
+  try {
+    r = await fetch(entry.file, ctl ? { signal: ctl.signal } : undefined);
+  } catch (e) {
+    throw new Error(`Couldn't download ${entry.name} (${e && e.name === 'AbortError' ? 'timed out' : 'no connection'}).`);
+  } finally {
+    if (t) clearTimeout(t);
+  }
   if (!r.ok) throw new Error(`Couldn't download ${entry.name} (${r.status}).`);
   return new Uint8Array(await r.arrayBuffer());
 }

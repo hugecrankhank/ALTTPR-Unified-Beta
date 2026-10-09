@@ -218,6 +218,7 @@
     state.rom = rom;
     state.romName = name || '';
     state.mode = 'idle'; state.ptr = -1; state.snapRam = null; state.snapSram = null;
+    romCopies = null;
     emit();
   }
 
@@ -235,28 +236,51 @@
     return true;
   }
 
-  // Find a copy of `rom` in the core's memory whose bytes [lo, hi) are intact.
-  // The ROM's internal header (title, map mode) at 0x7FC0 is the needle.
+  // Find the copies of `rom` in the core's memory whose bytes [lo, hi) are
+  // intact. Searching a phone's whole emulator memory is slow, so: the needle
+  // is a distinctive 32-byte stretch of the ROM (not a run of zeros or
+  // spaces), and the copies found are remembered, so later calls only check
+  // them (a few hundred KB) instead of searching again.
+  let romCopies = null;   // { buf, bases: [...] }
+  function pickRomNeedle(rom) {
+    for (let at = 0x7FC0; at < rom.length - 32; at = at === 0x7FC0 ? 0x8000 : at + 0x1000) {
+      const seen = new Set();
+      for (let i = 0; i < 32; i++) seen.add(rom[at + i]);
+      if (seen.size >= 16 && rom[at] !== 0 && rom[at] !== 0xFF) return at;
+    }
+    return 0x7FC0;
+  }
+  function intact(h, rom, base, lo, hi) {
+    if (base < 0 || base + hi > h.length) return false;
+    for (let i = lo; i < hi; i++) if (h[base + i] !== rom[i]) return false;
+    return true;
+  }
   function findRomCopies(h, rom, lo, hi) {
-    const NEEDLE_AT = 0x7FC0, needle = rom.subarray(NEEDLE_AT, NEEDLE_AT + 32);
+    if (romCopies && romCopies.buf === h.buffer) {
+      const ok = romCopies.bases.filter((b) => intact(h, rom, b, lo, hi));
+      if (ok.length) return ok;
+    }
+    const at = pickRomNeedle(rom) & ~3, needle = rom.subarray(at, at + 32);
     const found = [];
     const check = (p) => {
-      const base = p - NEEDLE_AT;
-      if (base < 0 || base + hi > h.length) return;
       for (let i = 0; i < 32; i++) if (h[p + i] !== needle[i]) return;
-      for (let i = lo; i < hi; i++) if (h[base + i] !== rom[i]) return;
-      found.push(base);
+      // the whole ROM must match, so a stretch that only looks alike is never written to
+      const base = p - at;
+      if (found.indexOf(base) < 0 && intact(h, rom, base, 0, rom.length)) found.push(base);
     };
     // Allocations are 8-aligned, so search 32-bit words first (fast)…
     if (h.byteOffset % 4 === 0) {
       const w = new Uint32Array(h.buffer, h.byteOffset, h.length >> 2);
-      const first = needle[0] | (needle[1] << 8) | (needle[2] << 16) | (needle[3] << 24);
-      for (let i = w.indexOf(first >>> 0); i >= 0; i = w.indexOf(first >>> 0, i + 1)) check(i * 4);
+      const first = (needle[0] | (needle[1] << 8) | (needle[2] << 16) | (needle[3] << 24)) >>> 0;
+      for (let i = w.indexOf(first); i >= 0; i = w.indexOf(first, i + 1)) check(i * 4);
     }
-    // …and every byte if that found nothing.
+    // …and byte by byte (on a rarer byte of the needle) if that found nothing.
     if (!found.length) {
-      for (let p = h.indexOf(needle[0]); p >= 0; p = h.indexOf(needle[0], p + 1)) check(p);
+      let k = 0;
+      for (let i = 1; i < 32; i++) if (needle[i] !== 0 && needle[i] !== 0xFF && needle[i] !== 0x20) { k = i; break; }
+      for (let p = h.indexOf(needle[k]); p >= 0; p = h.indexOf(needle[k], p + 1)) check(p - k);
     }
+    romCopies = { buf: h.buffer, bases: found };
     return found;
   }
 
