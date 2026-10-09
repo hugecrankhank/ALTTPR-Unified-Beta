@@ -81,6 +81,21 @@
   #rando-bar .kara-group-title { flex-basis: 100%; color: var(--text); font-size: 11px; text-transform: uppercase;
     letter-spacing: .04em; margin-top: 4px; }
   #r-kara-more .hint { margin: 8px 0 0; }
+  /* The fold-outs (More Kara settings, ROM options) as clear buttons, with a
+     hint of what's inside while closed */
+  #rando-bar details > summary { display: inline-flex; align-items: center; gap: 8px; list-style: none;
+    padding: 7px 14px; border: 1px solid #2a8a4a; border-radius: 8px; background: #12261a; color: var(--accent);
+    font-size: 13px; font-weight: 600; text-transform: none; letter-spacing: 0; cursor: pointer;
+    -webkit-user-select: none; user-select: none; }
+  #rando-bar details > summary::-webkit-details-marker { display: none; }
+  #rando-bar details > summary:hover { background: #173322; border-color: var(--accent); }
+  #rando-bar details > summary::before { content: ''; width: 7px; height: 7px; margin: 0 2px 0 1px;
+    border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg);
+    transition: transform .15s; }
+  #rando-bar details[open] > summary::before { transform: rotate(45deg); margin-top: -4px; }
+  #rando-bar details:not([open]) > summary::after { color: var(--dim); font-weight: 400; font-size: 12px; }
+  #r-kara-more:not([open]) > summary::after { content: 'door, overworld, entrance and item shuffles\2026'; }
+  #rando-bar details:not(#r-kara-more):not([open]) > summary::after { content: 'heart beep, MSU-1 music, quickswap\2026'; }
   #r-base-label.ok { color: var(--accent); }
   #r-base-input, #r-sprite-input, #r-msu-input { display: none; }
   #r-msu-name { text-transform: none; letter-spacing: 0; font-size: 12px; color: var(--text); max-width: 16em;
