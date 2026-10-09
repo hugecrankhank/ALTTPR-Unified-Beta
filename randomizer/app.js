@@ -436,7 +436,7 @@ async function generateAndPlay() {
     console.error(e);
     status(String(e.message || e), 'bad');
   } finally {
-    btn.disabled = false;
+    btns.forEach((b) => { b.disabled = false; });
   }
 }
 
@@ -751,6 +751,7 @@ async function refreshSprite() {
   $('r-sprite-prev').dataset.sheet = own ? '1' : '';
   $('r-sprite-sheet').hidden = true;
   if (own) drawSheet(parsed, $('r-sprite-sheet').querySelector('canvas'));
+  updateSpriteButton(sp, parsed);
 }
 
 // ── changing the sprite during a game ────────────────────────────────────────
@@ -805,8 +806,9 @@ function spriteStatus(label, live) {
 }
 
 async function randomSprite() {
-  const btn = $('r-sprite-random');
-  btn.disabled = true;
+  const btns = [$('r-sprite-random'), $('sprite-btn')].filter(Boolean);
+  if (btns.some((b) => b.disabled)) return;   // one is being fetched already
+  btns.forEach((b) => { b.disabled = true; });
   try {
     status('Picking a random sprite…');
     const list = (await loadList()).filter((e) => !isPlainLink(e));
@@ -817,6 +819,50 @@ async function randomSprite() {
   } finally {
     btn.disabled = false;
   }
+}
+
+// ── header button: Link's current sprite; tap for a random one ──────────────
+function buildSpriteButton() {
+  const split = $('rando-split');
+  if (!split || $('sprite-btn')) return;
+  const b = document.createElement('button');
+  b.id = 'sprite-btn';
+  b.type = 'button';
+  b.setAttribute('aria-label', 'Random sprite');
+  // the head preview, with a small die in its corner
+  b.innerHTML = '<span class="sb-head"><img alt=""><canvas hidden></canvas>' +
+    '<svg class="sb-die" viewBox="0 0 12 12" aria-hidden="true"><rect x=".75" y=".75" width="10.5" height="10.5" rx="2.5"/>' +
+    '<circle cx="4" cy="4" r="1.1"/><circle cx="8" cy="8" r="1.1"/><circle cx="8" cy="4" r="1.1"/><circle cx="4" cy="8" r="1.1"/></svg></span>' +
+    '<span class="sb-lbl">Sprite</span>';
+  b.addEventListener('click', randomSprite);
+  split.parentNode.insertBefore(b, split.nextSibling);
+  const st = document.createElement('style');
+  st.textContent = [
+    '#sprite-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; white-space: nowrap; }',
+    '#sprite-btn .sb-head { position: relative; display: block; width: 22px; height: 22px; flex: none; }',
+    '#sprite-btn .sb-head img, #sprite-btn .sb-head canvas { width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; display: block; }',
+    '#sprite-btn .sb-head [hidden] { display: none; }',
+    '#sprite-btn .sb-die { position: absolute; right: -5px; bottom: -4px; width: 11px; height: 11px; }',
+    '#sprite-btn .sb-die rect { fill: var(--bg, #111); stroke: currentColor; stroke-width: 1.3; }',
+    '#sprite-btn .sb-die circle { fill: currentColor; }',
+    '#sprite-btn:disabled .sb-head { opacity: .5; }',
+    // phones: stays in the header beside Reroll, icon only
+    'body.phone #sprite-btn { min-width: 44px; min-height: 34px; padding: 0 8px; }',
+    'body.phone #sprite-btn .sb-lbl { display: none; }',
+  ].join('\n');
+  document.head.appendChild(st);
+}
+
+function updateSpriteButton(sp, parsed) {
+  const b = $('sprite-btn');
+  if (!b) return;
+  const img = b.querySelector('img'), cv = b.querySelector('canvas');
+  const own = !!parsed && !(sp && sp.preview) && drawHead(parsed, cv);
+  cv.hidden = !own; img.hidden = own;
+  // picture host unreachable (offline): draw the head from the file, or just show the die
+  img.onerror = () => { img.hidden = true; if (parsed && drawHead(parsed, cv)) cv.hidden = false; };
+  if (!own) img.src = (sp && sp.preview) || LINK_PREVIEW;
+  b.title = `Sprite: ${sp ? sp.label : 'Default Link'}. Tap for a random one (changes Link in the game you're playing, and the next seed).`;
 }
 
 async function useLibrarySprite(entry) {
@@ -930,6 +976,7 @@ export function init() {
     refreshSprite();
   });
   $('r-sprite-random').addEventListener('click', randomSprite);
+  buildSpriteButton();
   refreshSprite();
 
   window.UnifiedRando = { useIfBaseRom, prepareLoadedRom, noteRom };
