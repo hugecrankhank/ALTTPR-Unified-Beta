@@ -52,6 +52,8 @@ export class MsuPlayer {
 
   // Must be called from a tap/click so iOS lets audio start.
   unlock() {
+    // iOS: play through the silent switch, like a music app would
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
     if (!this.ctx) {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
@@ -88,8 +90,9 @@ export class MsuPlayer {
     const st = b.status();
     if (!st.running || (st.mode !== 'live' && st.mode !== 'snapshot')) return false;
     // only when the running ROM is a randomizer ROM with its own music off
-    const title = b.read(0x7FC0, 2);
-    return title[0] === 0x56 && title[1] === 0x54 && b.read(NO_BGM, 1)[0] === 1;   // "VT"
+    // "VT" = alttpr.com / built-in generator, "GK" = Kara's branch
+    const t = String.fromCharCode(...b.read(0x7FC0, 2));
+    return (t === 'VT' || t === 'GK') && b.read(NO_BGM, 1)[0] === 1;
   }
 
   ram(addr, len = 1) { return window.AlttpBridge.read(WRAM + addr, len); }
