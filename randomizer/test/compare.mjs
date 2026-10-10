@@ -1,10 +1,16 @@
 // Compare the JS port against the reference PHP randomizer (deterministic PRNG).
-// usage: node test/compare.mjs '<settings json>' <seed> [more seeds...]
+// usage: node test/compare.mjs [--custom] '<settings json>' <seed> [more seeds...]
+//   --custom: a Customizer request (generateCustom vs tools/oracle/custom.php)
 import { execFileSync } from 'node:child_process';
-import { generate } from '../generate.js';
+import { generate as generatePlain, generateCustom } from '../generate.js';
 
-const settings = JSON.parse(process.argv[2] || '{}');
-const seeds = process.argv.slice(3).map(Number);
+const args = process.argv.slice(2);
+const CUSTOM = args[0] === '--custom';
+if (CUSTOM) args.shift();
+const generate = CUSTOM ? generateCustom : generatePlain;
+const ORACLE = CUSTOM ? 'custom.php' : 'gen.php';
+const settings = JSON.parse(args[0] || '{}');
+const seeds = args.slice(1).map(Number);
 if (!seeds.length) seeds.push(1);
 
 function bytesOf(patch) {
@@ -33,7 +39,7 @@ let fails = 0;
 for (const seed of seeds) {
   let php;
   try {
-    php = JSON.parse(execFileSync('php', [new URL('../tools/oracle/gen.php', import.meta.url).pathname, JSON.stringify(settings), String(seed)], { maxBuffer: 1 << 28 }).toString());
+    php = JSON.parse(execFileSync('php', [new URL('../tools/oracle/' + ORACLE, import.meta.url).pathname, JSON.stringify(settings), String(seed)], { maxBuffer: 1 << 28 }).toString());
   } catch (e) {
     const perr = String(e.stderr || e).match(/Uncaught (?:Exception|Error|ValueError): ([^\n]*?) in \//)?.[1] || String(e.stderr || e).slice(0, 200);
     let jerr = null;

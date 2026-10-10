@@ -10,6 +10,7 @@ import { createCollection, keyOf, pickFrom } from './collection.js';
 import { relayUrl, ownRelay, setRelayUrl, DEFAULT_RELAY, alttprId, fetchAlttprSeed, baseFor, patchSeed } from './remote.js';
 import * as Kara from './kara/index.js';
 import { buildUi as buildKaraUi } from './kara/ui.js';
+import { initCustomizer, customizerOn, customRequest } from './custom-ui.js';
 
 const msu = new MsuPlayer();
 
@@ -199,11 +200,11 @@ function getWorker() {
   }
   return worker;
 }
-function runGenerator(settings, seed) {
+function runGenerator(settings, seed, custom = false) {
   return new Promise((resolve, reject) => {
     const id = ++reqId;
     pending.set(id, { resolve, reject });
-    getWorker().postMessage({ id, settings, seed, stamp: true });
+    getWorker().postMessage({ id, settings, seed, stamp: true, custom });
   });
 }
 
@@ -269,6 +270,9 @@ function showLast() {
     $('r-seed-out').textContent = `Kara ${last.race ? 'race seed' : 'seed'} ${last.spoiler.seed}`;
     $('r-seed-out').title = last.race ? 'A race seed: its spoiler stays hidden'
       : 'Kara\'s branch: this number with the same settings gives the same game again';
+  } else if (last && last.custom) {
+    $('r-seed-out').textContent = `Customized seed ${last.spoiler.seed}`;
+    $('r-seed-out').title = 'This number with the same customizer settings (save them as a preset) gives the same game again';
   } else {
     $('r-seed-out').textContent = last ? (last.race ? `Race seed ${last.spoiler.seed}` : `Seed ${last.spoiler.seed}`) : '';
     $('r-seed-out').title = last && last.race ? 'A race seed: its spoiler stays hidden'
@@ -391,11 +395,13 @@ async function generateAndPlay() {
   }
   // playing a shared seed exactly as linked? then don't overwrite this
   // player's own saved choices with the link's
+  // a shared link is a normal seed, so it's played without the customizer
   const fromLink = !!shared && !shared.kara && parseSeed($('r-seed').value) === shared.seed && settingsMatch(shared.fields);
   if (!fromLink) saveFields();
   const settings = readSettings();
   const fields = currentFields();
   const typed = parseSeed($('r-seed').value);
+  const custom = !fromLink && customizerOn() ? await customRequest(settings) : null;
   btn.disabled = true;
   try {
     status('Patching base ROM…');
@@ -403,16 +409,21 @@ async function generateAndPlay() {
     let res = null, tries = 0, seed = typed ?? randomSeed();
     for (;;) {
       tries++;
-      status(tries === 1 ? 'Generating seed…' : `Generating seed (attempt ${tries})…`);
+      const what = custom ? 'customized seed' : 'seed';
+      status(tries === 1 ? `Generating ${what}…` : `Generating ${what} (attempt ${tries})…`);
       try {
-        res = await runGenerator(settings, seed);
+        res = await runGenerator(custom ? custom.req : settings, seed, !!custom);
         if (res.winnable) break;
         throw new Error('the finished game wasn\'t beatable');
       } catch (e) {
         // the official generator also gives up on some seeds (alttpr.com just
         // asks you to try again); for random seeds we quietly roll a new one
         if (typed !== null) throw new Error(`Seed ${seed} doesn't work with these settings (${e.message}). Try another number, or clear the seed box for a random one.`);
-        if (tries >= 8) throw e;
+        if (tries >= 8) {
+          if (custom) throw new Error(`Couldn't make a game from the customizer settings in ${tries} tries (${e.message}). `
+            + 'Check the placed items and the Item Pool count' + (custom.poolOff ? ' (it doesn\'t match the number of locations)' : '') + ', then try again.');
+          throw e;
+        }
       }
       seed = randomSeed();
     }
@@ -427,8 +438,10 @@ async function generateAndPlay() {
     updateChecksum(rom);
 
     const m = res.spoiler.meta || {};
-    const name = `alttpr - ${m.logic}-${m.mode}-${m.goal}_${res.hash}.sfc`;
-    last = { rom, name, fields, race: fromLink && shared.race, spoiler: { seed: res.seed, hash: res.hash, ...res.spoiler } };
+    const name = `alttpr - ${custom ? 'custom-' : ''}${m.logic}-${m.mode}-${m.goal}_${res.hash}.sfc`;
+    // a customized seed can't be shared as a link (the link holds only the bar's settings)
+    last = { rom, name, fields: custom ? null : fields, custom: !!custom, race: fromLink && shared.race,
+      spoiler: { seed: res.seed, hash: res.hash, ...res.spoiler } };
     if (fromLink) { shared = null; clearLink(); showShared(); $('r-seed').value = ''; }
     playing = null;
     showLast();
@@ -444,7 +457,8 @@ async function generateAndPlay() {
 
     window.UnifiedApp.playRom(rom, name, {
       gamemode: settings.mode,
-      dungeonitems: TRACKER_DI[settings.dungeon_items] || 'standard',
+      dungeonitems: custom ? custom.trackerDungeonItems(TRACKER_DI[settings.dungeon_items] || 'standard')
+        : TRACKER_DI[settings.dungeon_items] || 'standard',
       swordless: settings.weapons === 'swordless' ? 'yes' : 'no',
       gtcrystals: String(m.crystals_tower ?? 7),
     });
@@ -1546,6 +1560,7 @@ export function init() {
   initMsu();
   karaUi = buildKaraUi($('r-kara'), $('r-kara-more-body'));
   loadFields();
+  initCustomizer({ status });
   FIELDS.forEach((id) => $(id) && $(id).addEventListener('change', saveFields));
   applyGen();
   $('r-gen').addEventListener('change', () => {

@@ -16,6 +16,18 @@ Tablet sideways) and Desktop on a computer.
 Also available: [ALTTPR Unified Lite](https://github.com/hugecrankhank/ALTTPR-Unified-Lite),
 the emulator and tracker only, for older devices.
 
+## Customizer and presets
+
+In the **Randomizer** bar (alttpr.com generator), **Customizer** holds alttpr.com's Customizer menus, each
+its own dropdown: Settings, Logic, Starting Equipment, Item Pool, Locations, Prize Pack Pool, Prize Packs
+and Game Details. Turn on **Use the customizer when generating** and **Generate & Play** makes a seed from
+them, with the same code alttpr.com uses. Tap **?** beside a setting for what it does.
+
+**Presets:** type a name and press **Save preset** to keep the bar's settings and every customizer menu;
+pick it from **Presets** later to roll new seeds with it. **Export** saves presets to a file, **Import**
+adds them back (or reads a Save file from alttpr.com's own Customizer). Customized seeds can't be shared
+as a seed link; share the preset file instead.
+
 ## Playing offline
 
 Press **Make available offline** (in the header; behind **⚙** on phones) once while

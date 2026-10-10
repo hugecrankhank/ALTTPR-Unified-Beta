@@ -1,6 +1,6 @@
 {
  "edition": "full",
- "version": "e96ed7a7e0ca",
+ "version": "408e565d66e8",
  "cache": "alttpr-unified-full-v1",
  "files": [
   "./",
@@ -44,6 +44,8 @@
   "randomizer/core/shop.js",
   "randomizer/core/text.js",
   "randomizer/core/world.js",
+  "randomizer/custom-ui.js",
+  "randomizer/custom.js",
   "randomizer/data/base-patch.bin",
   "randomizer/data/config.js",
   "randomizer/data/lang-en.js",
