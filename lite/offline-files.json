@@ -1,6 +1,6 @@
 {
  "edition": "lite",
- "version": "422c1ff303ec",
+ "version": "cc139b6bcc3e",
  "cache": "alttpr-unified-lite-v1",
  "files": [
   "./",
@@ -12,6 +12,7 @@
   "icons/icon-512-maskable.png",
   "icons/icon-512.png",
   "index.html",
+  "longpress.js",
   "manifest.webmanifest",
   "offline.js",
   "phone.js",

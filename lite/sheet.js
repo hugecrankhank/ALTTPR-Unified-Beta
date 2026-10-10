@@ -118,17 +118,14 @@
       w.__sheetHooked = true;
     } catch (e) {}
   }
-  function hookFrame(id) {
-    var fr = $(id);
-    if (!fr) return;
-    fr.addEventListener('load', function () { hookWin(fr.contentWindow); });
-    hookWin(fr.contentWindow);
-  }
-
+  // every tracker frame (classic, tablet/stacked, phone), each time it loads
   hookWin(window);
+  document.addEventListener('load', function (e) {
+    var fr = e.target;
+    if (fr && fr.tagName === 'IFRAME' && !fr.closest('.ua-sheet')) hookWin(fr.contentWindow);
+  }, true);
   document.addEventListener('DOMContentLoaded', function () {
-    hookFrame('map-frame');
-    hookFrame('items-frame');
+    [].forEach.call(document.querySelectorAll('iframe'), function (fr) { hookWin(fr.contentWindow); });
     style();
     document.documentElement.classList.toggle('touch-sheets', useSheet());
   });
