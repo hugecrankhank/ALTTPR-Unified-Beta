@@ -979,6 +979,26 @@ function showMsu(name) {
   $('r-msu-clear').hidden = !msu.count;
 }
 
+// A chosen folder: use the folder that holds the pack's .pcm files, ignoring
+// subfolders like "Alternative" whose tracks would replace the main ones.
+function packFolderFiles(fileList) {
+  const byDir = new Map();
+  for (const f of fileList) {
+    if (trackNumber(f.name) === null) continue;
+    const path = f.webkitRelativePath || f.name;
+    const dir = path.slice(0, path.lastIndexOf('/') + 1);
+    if (!byDir.has(dir)) byDir.set(dir, []);
+    byDir.get(dir).push(f);
+  }
+  let best = [];
+  for (const [dir, files] of byDir) {
+    const depth = dir.split('/').length;
+    const bDepth = best.length ? (best[0].webkitRelativePath || '').split('/').length : Infinity;
+    if (!best.length || depth < bDepth || (depth === bDepth && files.length > best.length)) best = files;
+  }
+  return best;
+}
+
 async function loadMsuPack(fileList) {
   const files = [...fileList].filter((f) => trackNumber(f.name) !== null);
   if (!files.length) throw new Error('Choose the .pcm files from an MSU-1 pack (named like pack-1.pcm, pack-2.pcm, …).');
@@ -1012,12 +1032,18 @@ function prepareLoadedRom(bytes) {
 }
 
 function initMsu() {
-  $('r-msu-input').addEventListener('change', async (ev) => {
+  const onPick = async (ev) => {
     const files = ev.target.files;
     msu.unlock();
-    try { await loadMsuPack(files); } catch (e) { status(String(e.message || e), 'bad'); }
+    try { await loadMsuPack(ev.target.id === 'r-msu-dir' ? packFolderFiles(files) : files); }
+    catch (e) { status(String(e.message || e), 'bad'); }
     ev.target.value = '';
-  });
+  };
+  $('r-msu-input').addEventListener('change', onPick);
+  $('r-msu-dir').addEventListener('change', onPick);
+  // Folder… needs a browser whose picker can choose folders (not iPhone/iPad)
+  const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  $('r-msu-dir-label').hidden = ios || !('webkitdirectory' in $('r-msu-dir'));
   $('r-msu-clear').addEventListener('click', async () => {
     msu.setTracks(new Map());
     showMsu('');
