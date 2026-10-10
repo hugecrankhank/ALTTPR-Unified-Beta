@@ -1,11 +1,12 @@
 {
  "edition": "full",
- "version": "0274631fc569",
+ "version": "8ade52da8bbe",
  "cache": "alttpr-unified-full-v1",
  "files": [
   "./",
   "bridge/sni-bridge.js",
   "bridge/sni-shim.js",
+  "checklist-sheet.js",
   "desktop.js",
   "icons/apple-touch-icon.png",
   "icons/favicon-32.png",
