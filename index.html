@@ -153,8 +153,25 @@
     padding: 5px 8px; font: inherit; font-size: 13px; width: 16em; }
   #sl-grid { flex: 1; overflow-y: auto; padding: 10px; display: grid; gap: 6px;
     grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
-  #sl-grid .sl-item { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px 6px;
+  #sl-grid .sl-cell { position: relative; display: flex; min-width: 0; }
+  #sl-grid .sl-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px 6px;
     min-width: 0; }
+  /* ★ in the corner of each sprite; ✕ on your own */
+  #sl-grid .sl-star, #sl-grid .sl-del { position: absolute; top: 2px; width: 26px; height: 26px; padding: 0; min-width: 0;
+    display: flex; align-items: center; justify-content: center; border: 0; background: transparent;
+    font-size: 16px; line-height: 1; color: var(--dim); }
+  #sl-grid .sl-star { right: 2px; }
+  #sl-grid .sl-star.on { color: #f5c542; }
+  #sl-grid .sl-del { left: 2px; font-size: 12px; opacity: .7; }
+  #sl-grid .sl-cell.own .sl-item { border-style: dashed; }
+  #sprite-lib .sl-views { display: flex; gap: 4px; flex: 1 1 260px; flex-wrap: wrap; align-items: center; }
+  #sprite-lib .sl-views + .filebtn { margin-left: auto; }
+  #sprite-lib .sl-views [aria-selected=true] { border-color: var(--accent); color: var(--text); }
+  #sprite-lib .sl-count:empty { display: none; }
+  #sprite-lib .sl-count { font-size: 11px; color: var(--dim); margin-left: 2px; }
+  #r-sprite-star { padding: 0 6px; min-width: 0; line-height: 1.2; font-size: 14px; color: var(--dim); }
+  #r-sprite-star.on { color: #f5c542; }
+  #rando-bar .sprite-col > .sprite-row:last-child { align-items: center; }
   #sl-grid .sl-item img { width: 32px; height: 48px; image-rendering: pixelated; }
   #sl-grid .sl-item canvas.sl-head-only { width: 32px; height: 32px; margin: 8px 0; image-rendering: pixelated; }
   #sl-grid .sl-item .sl-name { font-size: 12px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -489,10 +506,14 @@
             <button type="button" id="r-sprite-lib" title="Browse the alttpr.com sprite library">Library…</button>
             <label class="filebtn" for="r-sprite-input" id="r-sprite-label" title="Use your own .zspr or .spr file">File…</label>
             <input type="file" id="r-sprite-input">
-            <button type="button" id="r-sprite-random" title="A random sprite from the library (changes Link right away during a game)">&#127922; Random</button>
+            <button type="button" id="r-sprite-random" title="A random sprite from the whole library and your own (changes Link right away during a game)">&#127922; Random</button>
+            <button type="button" id="r-sprite-fav-roll" title="A random sprite from your favourites">&#127922;&#9733; Favorites</button>
             <button type="button" id="r-sprite-clear" hidden title="Go back to the normal Link">Default</button>
           </div>
-          <span id="r-sprite-name">Default Link</span>
+          <div class="sprite-row">
+            <button type="button" id="r-sprite-star" class="r-star" hidden aria-pressed="false" title="Star this sprite">&#9734;</button>
+            <span id="r-sprite-name">Default Link</span>
+          </div>
         </div>
       </div>
       <div id="r-sprite-sheet" hidden><canvas></canvas></div>
@@ -605,6 +626,13 @@
       <select id="sl-tag" aria-label="Tag"><option value="">All tags</option></select>
       <button type="button" id="sl-random" title="Pick one at random (from the ones shown)">Random</button>
       <button type="button" id="sl-close" aria-label="Close">&#10005;</button>
+      <div class="sl-views" role="tablist" aria-label="Show">
+        <button type="button" role="tab" data-view="all">All</button>
+        <button type="button" role="tab" data-view="fav">&#9733; Favorites <span class="sl-count"></span></button>
+        <button type="button" role="tab" data-view="own">Mine <span class="sl-count"></span></button>
+      </div>
+      <label class="filebtn" for="sl-add-input" title="Keep your own .zspr / .spr files in this list">+ Add files</label>
+      <input type="file" id="sl-add-input" multiple accept=".zspr,.spr" hidden>
     </div>
     <div id="sl-grid"></div>
     <div id="sl-note" class="sl-note"></div>

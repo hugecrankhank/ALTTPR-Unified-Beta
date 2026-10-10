@@ -84,10 +84,14 @@ export function previewFallback(entry, img) {
 /**
  * The library dialog. onPick(entry) is called with the chosen sprite; it
  * returns a promise, and the dialog stays open (showing progress) until it
- * settles.
+ * settles. coll is the sprite collection (collection.js): ★ toggles, your own
+ * sprites, and the All / ★ Favorites / Mine views. opts.view opens on a view.
  */
-export function openLibrary($, onPick) {
+export function openLibrary($, onPick, coll, opts = {}) {
   const dlg = $('sprite-lib'), grid = $('sl-grid'), search = $('sl-search'), tagSel = $('sl-tag'), note = $('sl-note');
+  const views = [...dlg.querySelectorAll('.sl-views [data-view]')];
+  let view = opts.view || 'all';
+  let listOk = !!list;
   dlg.hidden = false;
   document.body.classList.add('modal-open');
   search.value = '';
@@ -95,10 +99,12 @@ export function openLibrary($, onPick) {
   note.textContent = 'Loading the sprite list…';
   grid.innerHTML = '';
 
+  let unsub = null;
   function close() {
     dlg.hidden = true;
     document.body.classList.remove('modal-open');
     document.removeEventListener('keydown', onKey);
+    if (unsub) unsub();
   }
   function onKey(e) { if (e.key === 'Escape') close(); }
   document.addEventListener('keydown', onKey);
@@ -110,7 +116,7 @@ export function openLibrary($, onPick) {
     if (dlg.classList.contains('busy')) return;
     dlg.classList.add('busy');
     if (btn) btn.classList.add('picking');
-    note.textContent = `Downloading ${entry.name}…`;
+    note.textContent = entry.own ? `Using ${entry.name}…` : `Downloading ${entry.name}…`;
     Promise.resolve(onPick(entry)).then(close, (e) => {
       note.textContent = String(e.message || e);
     }).finally(() => {
@@ -118,43 +124,150 @@ export function openLibrary($, onPick) {
       if (btn) btn.classList.remove('picking');
     });
   }
-  function render() {
-    const q = search.value.trim().toLowerCase(), tag = tagSel.value;
-    shown = list.filter((s) => (!tag || s.tags.includes(tag)) &&
-      (!q || s.name.toLowerCase().includes(q) || s.author.toLowerCase().includes(q) ||
-       s.tags.some((t) => t.toLowerCase().includes(q))));
-    grid.innerHTML = '';
-    const frag = document.createDocumentFragment();
-    shown.forEach((s) => {
-      const b = document.createElement('button');
-      b.type = 'button'; b.className = 'sl-item'; b.title = labelOf(s);
-      const img = document.createElement('img');
-      img.loading = 'lazy'; img.decoding = 'async'; img.alt = '';
-      img.addEventListener('error', () => previewFallback(s, img));
-      img.src = s.preview;
-      const n = document.createElement('span'); n.className = 'sl-name'; n.textContent = s.name;
-      const a = document.createElement('span'); a.className = 'sl-author'; a.textContent = s.author;
-      b.append(img, n, a);
-      b.addEventListener('click', () => pick(s, b));
-      frag.appendChild(b);
+
+  // Previews: alttpr.com's picture; offline or missing, drawn from the file
+  function preview(s) {
+    if (s.own) {
+      const c = document.createElement('canvas');
+      c.className = 'sl-head-only';
+      try { drawHead(parseSprite(s.bytes), c); } catch (e) { /* recolour-only file: blank */ }
+      return c;
+    }
+    const img = document.createElement('img');
+    img.loading = 'lazy'; img.decoding = 'async'; img.alt = '';
+    img.addEventListener('error', () => {
+      coll.cached(s).then((b) => {
+        const c = document.createElement('canvas');
+        if (b && img.isConnected && drawHead(parseSprite(new Uint8Array(b)), c)) {
+          c.className = 'sl-head-only';
+          img.replaceWith(c);
+        } else previewFallback(s, img);
+      }).catch(() => previewFallback(s, img));
     });
-    grid.appendChild(frag);
-    note.textContent = `${shown.length} of ${list.length} sprites, from the alttpr.com sprite library. Click one to use it.`;
+    img.src = s.preview;
+    return img;
   }
 
-  loadList().then(() => {
+  function cell(s) {
+    const key = coll.keyOf(s);
+    const wrap = document.createElement('div');
+    wrap.className = 'sl-cell' + (s.own ? ' own' : '');
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'sl-item'; b.title = coll.labelOf(s);
+    const n = document.createElement('span'); n.className = 'sl-name'; n.textContent = s.name;
+    const a = document.createElement('span'); a.className = 'sl-author'; a.textContent = s.own ? (s.author || 'Your file') : s.author;
+    b.append(preview(s), n, a);
+    b.addEventListener('click', () => pick(s, b));
+
+    const star = document.createElement('button');
+    star.type = 'button'; star.className = 'sl-star';
+    const paint = () => {
+      const on = coll.isFav(key);
+      star.textContent = on ? '★' : '☆';
+      star.classList.toggle('on', on);
+      star.setAttribute('aria-pressed', on ? 'true' : 'false');
+      star.setAttribute('aria-label', (on ? 'Unstar ' : 'Star ') + s.name);
+      star.title = on ? 'Remove from favourites' : 'Add to favourites (also saved for offline)';
+    };
+    paint();
+    star.addEventListener('click', (e) => {
+      e.stopPropagation();
+      coll.toggleFav(s).then(() => { paint(); if (view === 'fav') render(); counts(); });
+    });
+    wrap.append(b, star);
+
+    if (s.own) {
+      const del = document.createElement('button');
+      del.type = 'button'; del.className = 'sl-del'; del.textContent = '✕';
+      del.setAttribute('aria-label', 'Remove ' + s.name);
+      del.title = 'Remove from your sprites';
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!confirm(`Remove ${s.name} from your sprites?`)) return;
+        coll.removeOwn(key).then(() => { render(); counts(); });
+      });
+      wrap.appendChild(del);
+    }
+    return wrap;
+  }
+
+  // the view tabs show how many are in each
+  function counts() {
+    views.forEach((v) => {
+      const n = v.dataset.view === 'fav' ? coll.favCount() : v.dataset.view === 'own' ? coll.ownEntries().length : null;
+      const c = v.querySelector('.sl-count');
+      if (c) c.textContent = n === null ? '' : String(n);
+      v.setAttribute('aria-selected', v.dataset.view === view ? 'true' : 'false');
+    });
+  }
+
+  let renderSeq = 0;
+  async function render() {
+    const seq = ++renderSeq;
+    const q = search.value.trim().toLowerCase(), tag = tagSel.value;
+    const lib = list || [];
+    let pool;
+    if (view === 'fav') pool = await coll.favEntries(lib);
+    else if (view === 'own') pool = coll.ownEntries();
+    else pool = coll.ownEntries().concat(lib);
+    if (seq !== renderSeq) return;   // a newer render started meanwhile
+    shown = pool.filter((s) => (!tag || (s.tags || []).includes(tag)) &&
+      (!q || s.name.toLowerCase().includes(q) || (s.author || '').toLowerCase().includes(q) ||
+       (s.tags || []).some((t) => t.toLowerCase().includes(q))));
+    grid.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    shown.forEach((s) => frag.appendChild(cell(s)));
+    grid.appendChild(frag);
+    counts();
+    if (view === 'fav' && !pool.length) {
+      note.textContent = 'No favourites yet. Tap ☆ on any sprite to star it; 🎲★ then rolls only your stars.';
+    } else if (view === 'own' && !pool.length) {
+      note.textContent = 'No sprites of your own yet. Use + Add files to keep .zspr or .spr files here.';
+    } else if (view === 'all' && !listOk) {
+      note.textContent = `${shown.length} shown. The alttpr.com list isn't available right now, so only your own sprites are here.`;
+    } else {
+      const what = view === 'fav' ? 'favourites' : view === 'own' ? 'of your sprites' : 'sprites';
+      note.textContent = `${shown.length} ${what} shown. Tap one to use it, ☆ to star it. Random picks from what's shown.`;
+    }
+  }
+
+  views.forEach((v) => {
+    v.onclick = () => { view = v.dataset.view; render(); };
+  });
+
+  const add = $('sl-add-input');
+  if (add) {
+    add.onchange = async () => {
+      const files = [...(add.files || [])];
+      add.value = '';
+      if (!files.length) return;
+      let ok = 0, bad = [];
+      for (const f of files) {
+        try {
+          await coll.addOwn(new Uint8Array(await f.arrayBuffer()), f.name.replace(/\.[^.]+$/, ''));
+          ok++;
+        } catch (e) { bad.push(`${f.name}: ${e.message || e}`); }
+      }
+      view = 'own';
+      await render();
+      if (bad.length) note.textContent = `Added ${ok}. Skipped ${bad.join('; ')}`;
+      else note.textContent = `Added ${ok} sprite${ok === 1 ? '' : 's'} to your sprites.`;
+    };
+  }
+
+  search.oninput = render;
+  tagSel.onchange = render;
+  $('sl-random').onclick = () => {
+    if (!shown.length) return;
+    pick(shown[Math.floor(Math.random() * shown.length)], null);
+  };
+
+  unsub = coll.onChange(counts);
+  coll.load().then(() => loadList().then(() => {
+    listOk = true;
     if (tagSel.options.length <= 1) {
       const tags = [...new Set(list.flatMap((s) => s.tags))].sort((x, y) => x.localeCompare(y));
       tags.forEach((t) => { const o = document.createElement('option'); o.value = o.textContent = t; tagSel.appendChild(o); });
     }
-    search.oninput = render;
-    tagSel.onchange = render;
-    $('sl-random').onclick = () => {
-      const from = shown.length ? shown : list;
-      pick(from[Math.floor(Math.random() * from.length)], null);
-    };
-    render();
-  }, () => {
-    note.textContent = 'The sprite list isn\'t available here. Choose a sprite file instead, or use the published site.';
-  });
+  }, () => { listOk = false; })).then(render);
 }

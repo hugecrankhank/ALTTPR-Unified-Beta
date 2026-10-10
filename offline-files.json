@@ -1,6 +1,6 @@
 {
  "edition": "full",
- "version": "beta-39e5d8a-ec83fd5939ad",
+ "version": "b3e37be7274b",
  "cache": "alttpr-unified-full-v1",
  "files": [
   "./",
@@ -21,6 +21,7 @@
   "portal.js",
   "randomizer/app.js",
   "randomizer/bps.js",
+  "randomizer/collection.js",
   "randomizer/core/boss.js",
   "randomizer/core/collections.js",
   "randomizer/core/config.js",

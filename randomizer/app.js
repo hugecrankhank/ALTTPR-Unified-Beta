@@ -4,7 +4,8 @@ import { md5 } from './md5.js';
 import { parseSprite, applySprite, drawHead, drawSheet } from './sprite.js';
 import { MsuPlayer, trackNumber } from './msu.js';
 import { buildLink, readLink, clearLink, codeForSeed, codeFromRom, codeNames, renderCode, PARAMS } from './share.js';
-import { openLibrary, fetchSprite, labelOf, isPlainLink, loadList } from './library.js';
+import { openLibrary, labelOf, isPlainLink, loadList } from './library.js';
+import { createCollection, keyOf, pickFrom } from './collection.js';
 import { relayUrl, ownRelay, setRelayUrl, DEFAULT_RELAY, alttprId, fetchAlttprSeed, baseFor, patchSeed } from './remote.js';
 import * as Kara from './kara/index.js';
 import { buildUi as buildKaraUi } from './kara/ui.js';
@@ -52,6 +53,9 @@ async function kvDel(key) {
   });
 }
 export { kvGet, kvSet, kvDel };
+
+// ★ favourites and your own sprite files (collection.js)
+const coll = createCollection({ kvGet, kvSet, kvDel });
 
 // ── settings ─────────────────────────────────────────────────────────────────
 const FIELDS = ['r-gen', 'r-mode', 'r-goal', 'r-tower', 'r-ganon', 'r-weapons', 'r-placement', 'r-dungeon', 'r-access',
@@ -752,6 +756,23 @@ async function refreshSprite() {
   $('r-sprite-sheet').hidden = true;
   if (own) drawSheet(parsed, $('r-sprite-sheet').querySelector('canvas'));
   updateSpriteButton(sp, parsed);
+  paintStar(sp);
+}
+
+// ☆/★ beside the sprite's name: star whatever Link is wearing now
+async function paintStar(sp) {
+  const st = $('r-sprite-star');
+  await coll.load().catch(() => {});
+  if (st) {
+    st.hidden = !(sp && sp.key);
+    const on = !!(sp && sp.key && coll.isFav(sp.key));
+    st.textContent = on ? '\u2605' : '\u2606';
+    st.classList.toggle('on', on);
+    st.setAttribute('aria-pressed', on ? 'true' : 'false');
+    st.title = on ? 'Remove from favourites' : 'Star this sprite';
+  }
+  const fb = $('sprite-fav-btn');
+  if (fb) fb.hidden = !coll.favCount();
 }
 
 // ── changing the sprite during a game ────────────────────────────────────────
@@ -805,16 +826,33 @@ function spriteStatus(label, live) {
   return `Sprite set: ${label}. It applies to the next seed you generate.`;
 }
 
-async function randomSprite() {
-  const btns = [$('r-sprite-random'), $('sprite-btn')].filter(Boolean);
+// 🎲 rolls the whole library plus your own sprites; 🎲★ only your favourites.
+// Neither gives you the sprite you already have when there's another.
+async function randomSprite(mode) {
+  const favs = mode === 'fav';
+  const btns = [$('r-sprite-random'), $('r-sprite-fav-roll'), $('sprite-btn'), $('sprite-fav-btn')].filter(Boolean);
   if (btns.some((b) => b.disabled)) return;   // one is being fetched already
   btns.forEach((b) => { b.disabled = true; });
-  const hb = $('sprite-btn');
+  const hb = $(favs ? 'sprite-fav-btn' : 'sprite-btn');
   if (hb) hb.classList.add('busy');
   try {
-    status('Picking a random sprite…');
-    const list = (await loadList()).filter((e) => !isPlainLink(e));
-    const entry = list[Math.floor(Math.random() * list.length)];
+    status(favs ? 'Picking one of your favourites…' : 'Picking a random sprite…');
+    await coll.load();
+    const cur = await kvGet('sprite').catch(() => null);
+    let pool;
+    if (favs) {
+      // works offline too: starred sprites keep a saved copy
+      const list = await loadList().catch(() => []);
+      pool = await coll.favEntries(list);
+      if (!pool.length) throw new Error('No favourites yet. Open the Library and tap \u2606 on the sprites you like.');
+    } else {
+      const list = (await loadList().catch((e) => {
+        if (coll.ownEntries().length) return [];
+        throw e;
+      })).filter((e) => !isPlainLink(e));
+      pool = coll.ownEntries().concat(list);
+    }
+    const entry = pickFrom(pool, cur && cur.key);
     await useLibrarySprite(entry);
   } catch (e) {
     const msg = String(e.message || e);
@@ -840,8 +878,20 @@ function buildSpriteButton() {
     '<svg class="sb-die" viewBox="0 0 12 12" aria-hidden="true"><rect x=".75" y=".75" width="10.5" height="10.5" rx="2.5"/>' +
     '<circle cx="4" cy="4" r="1.1"/><circle cx="8" cy="8" r="1.1"/><circle cx="8" cy="4" r="1.1"/><circle cx="4" cy="8" r="1.1"/></svg></span>' +
     '<span class="sb-lbl">Sprite</span>';
-  b.addEventListener('click', randomSprite);
+  b.addEventListener('click', () => randomSprite('all'));
   split.parentNode.insertBefore(b, split.nextSibling);
+  // 🎲★ beside it: a random favourite (shown once you've starred something)
+  const f = document.createElement('button');
+  f.id = 'sprite-fav-btn';
+  f.type = 'button';
+  f.hidden = true;
+  f.setAttribute('aria-label', 'Random favourite sprite');
+  f.title = 'A random sprite from your favourites';
+  f.innerHTML = '<span class="sfb-star" aria-hidden="true">\u2605</span>' +
+    '<svg class="sb-die" viewBox="0 0 12 12" aria-hidden="true"><rect x=".75" y=".75" width="10.5" height="10.5" rx="2.5"/>' +
+    '<circle cx="4" cy="4" r="1.1"/><circle cx="8" cy="8" r="1.1"/><circle cx="8" cy="4" r="1.1"/><circle cx="4" cy="8" r="1.1"/></svg>';
+  f.addEventListener('click', () => randomSprite('fav'));
+  b.parentNode.insertBefore(f, b.nextSibling);
   const st = document.createElement('style');
   st.textContent = [
     '#sprite-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; white-space: nowrap; }',
@@ -860,6 +910,16 @@ function buildSpriteButton() {
     'body.phone #reroll-btn .reroll-lbl, body.phone #phone-map-btn .map-lbl { display: none; }',
     'body.phone #reroll-btn { min-width: 44px; }',
     '#sprite-btn.busy .sb-head { animation: sb-spin .6s linear infinite; }',
+    '#sprite-fav-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; min-width: 38px; }',
+    '#sprite-fav-btn[hidden] { display: none; }',
+    '#sprite-fav-btn .sfb-star { color: #f5c542; font-size: 17px; line-height: 1; }',
+    '#sprite-fav-btn .sb-die { position: absolute; right: 4px; bottom: 3px; width: 10px; height: 10px; }',
+    '#sprite-fav-btn .sb-die rect { fill: var(--bg, #111); stroke: currentColor; stroke-width: 1.3; }',
+    '#sprite-fav-btn .sb-die circle { fill: currentColor; }',
+    '#sprite-fav-btn.busy .sfb-star { display: inline-block; animation: sb-spin .6s linear infinite; }',
+    'body.phone #sprite-fav-btn { min-width: 34px; min-height: 34px; padding: 0 5px; }',
+    // with the ★ button showing, tighten the header's spacing so ⚙ stays on its line
+    'body.phone header:has(#sprite-fav-btn:not([hidden])) { column-gap: 6px; }',
     '@keyframes sb-spin { to { transform: rotate(360deg); } }',
   ].join('\n');
   document.head.appendChild(st);
@@ -884,10 +944,12 @@ async function useLibrarySprite(entry) {
     refreshSprite();
     return;
   }
-  const bytes = await fetchSprite(entry);
+  // yours, the saved copy of a favourite, or a download from alttpr.com
+  const bytes = await coll.bytesFor(entry);
   parseSprite(bytes);   // throws with a readable reason if it isn't a sprite
-  const label = labelOf(entry);
-  const sp = { bytes: bytes.slice(), label, preview: entry.preview };
+  const label = entry.label || labelOf(entry);
+  const sp = { bytes: bytes.slice(), label, key: keyOf(entry) };
+  if (!entry.own && entry.preview) sp.preview = entry.preview;
   await kvSet('sprite', sp);
   status(spriteStatus(label, await liveSprite(sp).catch(() => false)), 'ok');
   refreshSprite();
@@ -974,7 +1036,9 @@ export function init() {
       const bytes = new Uint8Array(await f.arrayBuffer());
       const info = parseSprite(bytes);
       const label = spriteLabel(info, f.name.replace(/\.[^.]+$/, ''));
-      const sp = { bytes: bytes.slice(), label };
+      // also kept in your sprites (Library → Mine), so it can be starred and rolled
+      const mine = await coll.addOwn(bytes, f.name.replace(/\.[^.]+$/, '')).catch(() => null);
+      const sp = { bytes: bytes.slice(), label, key: mine ? mine.key : undefined };
       await kvSet('sprite', sp);
       status(spriteStatus(label, await liveSprite(sp).catch(() => false)), 'ok');
     } catch (e) {
@@ -987,16 +1051,27 @@ export function init() {
     status(spriteStatus('Default Link', await liveSprite(null).catch(() => false)), 'ok');
     refreshSprite();
   });
-  $('r-sprite-random').addEventListener('click', randomSprite);
+  $('r-sprite-random').addEventListener('click', () => randomSprite('all'));
+  $('r-sprite-fav-roll').addEventListener('click', () => randomSprite('fav'));
+  $('r-sprite-star').addEventListener('click', async () => {
+    const sp = await kvGet('sprite').catch(() => null);
+    if (!sp || !sp.key) return;
+    // a starred own sprite is already in the collection; a library one is
+    // starred by key (its offline copy is the bytes we already have)
+    const on = await coll.toggleFav({ key: sp.key, own: sp.key.startsWith('own:'), bytes: sp.bytes });
+    if (on && sp.key.startsWith('lib:')) kvSet('sprite-cache:' + sp.key, sp.bytes.slice()).catch(() => {});
+    status(on ? `Starred ${sp.label}.` : `Unstarred ${sp.label}.`, 'ok');
+  });
+  coll.onChange(async () => paintStar(await kvGet('sprite').catch(() => null)));
   buildSpriteButton();
   refreshSprite();
 
   window.UnifiedRando = { useIfBaseRom, prepareLoadedRom, noteRom };
   if (window.__pendingRomNote) { noteRom(window.__pendingRomNote.bytes, window.__pendingRomNote.name); window.__pendingRomNote = null; }
-  $('r-sprite-lib').addEventListener('click', () => openLibrary($, useLibrarySprite));
+  $('r-sprite-lib').addEventListener('click', () => openLibrary($, useLibrarySprite, coll));
   $('r-sprite-prev').addEventListener('click', () => {
     if ($('r-sprite-prev').dataset.sheet) $('r-sprite-sheet').hidden = !$('r-sprite-sheet').hidden;
-    else openLibrary($, useLibrarySprite);
+    else openLibrary($, useLibrarySprite, coll);
   });
   document.addEventListener('click', (e) => {
     if (!$('r-sprite-sheet').hidden && !e.target.closest('#r-sprite-sheet, #r-sprite-prev')) $('r-sprite-sheet').hidden = true;
