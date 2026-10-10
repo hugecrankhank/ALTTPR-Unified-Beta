@@ -658,7 +658,6 @@ html, body { margin: 0; background: #1a1a1a; height: auto; min-height: 100%; wid
         <div class="settings-row">
           <label><input type="checkbox" id="opt-dungeon-fill"> Dungeon Fill</label>
           <label><input type="checkbox" id="opt-dungeon-box"> Dungeon Box</label>
-          <label id="opt-here-dot-lbl"><input type="checkbox" id="opt-here-dot"> You Are Here Dot</label>
         </div>
         <div class="sub-label">All Chests Collected</div>
         <div class="settings-radios">
@@ -879,9 +878,6 @@ function openSettings() {
   document.getElementById('opt-show-chests').checked    = SETTINGS.showChests;
   document.getElementById('opt-dungeon-fill').checked   = SETTINGS.dungeonFillEnabled;
   document.getElementById('opt-dungeon-box').checked    = SETTINGS.dungeonBoxEnabled;
-  document.getElementById('opt-here-dot').checked       = SETTINGS.hereDot && !RACE_MODE;
-  document.getElementById('opt-here-dot').disabled      = RACE_MODE;
-  document.getElementById('opt-here-dot-lbl').title     = RACE_MODE ? 'Disabled in Race Mode' : '';
   document.querySelectorAll('input[name="view-style"]').forEach(function(r) { r.checked = (r.value === SETTINGS.viewStyle); });
   document.getElementById('opt-item-anim').checked      = SETTINGS.itemAnimEnabled;
   document.getElementById('opt-anim-label').checked     = SETTINGS.animShowLabel;
@@ -1169,11 +1165,6 @@ function wireSettingsHandlers() {
     SETTINGS.dungeonBoxEnabled = e.target.checked;
     saveSettings();
     applyDungeonBox();
-  });
-
-  document.getElementById('opt-here-dot').addEventListener('change', function(e) {
-    SETTINGS.hereDot = e.target.checked;
-    saveSettings();
   });
 
   // Go Mode Sound: set per profile in the Item Sounds window now.

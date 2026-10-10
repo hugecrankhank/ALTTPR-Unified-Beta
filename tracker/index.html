@@ -461,7 +461,7 @@ input:focus, select:focus { outline: none; border-color: #4dff88; }
 <h1>⚔ ALTTP Tracker</h1>
 <!-- The number here is only a fallback for opening this page outside Electron;
      in the app it is replaced with app.getVersion() (i.e. package.json). -->
-<p class="version-line"><small id="app-version">Version 1.1.18</small></p>
+<p class="version-line"><small id="app-version">Version 1.1.21</small></p>
 <div class="top-row">
 <div class="section">
   <h2>Display</h2>
@@ -651,6 +651,14 @@ input:focus, select:focus { outline: none; border-color: #4dff88; }
       <input type="checkbox" id="randomprize-toggle">
       <span>Random Prize Shuffle</span>
       </label>
+      <label class="check-row select-row">
+      <span>Door Shuffle</span>
+      <select id="doorshuffle-select">
+      <option value="none">None</option>
+      <option value="basic">Basic</option>
+      <option value="crossed">Crossed</option>
+      </select>
+      </label>
       </div>
       </div>
       </div>
@@ -761,6 +769,9 @@ input:focus, select:focus { outline: none; border-color: #4dff88; }
           <option value="mcboss">MCBoss</option>
           <option value="mcbossenemizer">MCBossEnemizer</option>
           <option value="crosskeys">CrossKeys</option>
+          <option value="beginnerdoors">Beginner Doors</option>
+          <option value="intermediatedoors">Intermediate Doors</option>
+          <option value="crisscross">Crisscross</option>
         </select>
         <button type="button" id="preset-fav-btn" onclick="togglePresetFavorite()" title="Favorite: keep this preset at the top of the list">&#9734;</button>
         </div>
@@ -1058,7 +1069,7 @@ function isOnValue(v) {
 // vocabulary. Translate it into the alttpr.com names applySeedMeta already
 // reads, so one mapping function serves both sites.
 //
-// Anything with no counterpart here is simply not carried over — door shuffle,
+// Anything with no counterpart here is simply not carried over — door
 // intensity, the whole ow_* family, trap doors, tile swap. loadSeedSettings
 // warns when one of those is non-vanilla, because the tracker's logic cannot
 // model that seed at all.
@@ -1136,6 +1147,10 @@ function doorMetaToAlttpr(g) {
     m.random_prize = String(g.prizeshuffle).toLowerCase() !== 'none';
   set('mirrorscroll', g.mirrorscroll);
   set('logic',       g.logic);
+  // Door Randomizer: vanilla / basic / crossed (partitioned is crossed in
+  // groups, so it counts as crossed here).
+  v = String(g.door_shuffle || 'vanilla').toLowerCase();
+  m.door_shuffle = v === 'vanilla' ? 'none' : v === 'basic' ? 'basic' : 'crossed';
   return m;
 }
 
@@ -1330,6 +1345,13 @@ function applySeedMeta(meta) {
     applied.push(row[2] + ' ' + (on ? 'on' : 'off'));
   });
 
+  // Door shuffle: alttpr.com has none, so its meta has no field and reads None.
+  var dsSeed = document.getElementById('doorshuffle-select');
+  if (dsSeed) {
+    dsSeed.value = meta.door_shuffle || 'none';
+    applied.push('door shuffle ' + dsSeed.value);
+  }
+
   // Re-sync the Yes/No labels and persist, same as applyPresetSettings does.
   ['entranceshuffle','bossshuffle','enemizer','universalkeys','keydropall','keydrop','enemykeydrop','swordless','pseudoboots','mirrorscroll','shopsanity','bonkshuffle','racemode'].forEach(function(name) {
     var t = document.getElementById(name + '-toggle');
@@ -1395,7 +1417,6 @@ async function loadSeedSettings() {
       // models, so say so rather than applying half a seed silently.
       var offPiste = [];
       if (graw) {
-        if (graw.door_shuffle && String(graw.door_shuffle).toLowerCase() !== 'vanilla') offPiste.push('door shuffle');
         if (graw.ow_layout    && String(graw.ow_layout).toLowerCase()    !== 'vanilla') offPiste.push('overworld layout');
         if (graw.ow_crossed   && String(graw.ow_crossed).toLowerCase()   !== 'none')    offPiste.push('crossed overworld');
         if (graw.ow_mixed) offPiste.push('mixed overworld');
@@ -1512,6 +1533,7 @@ function getSettings() {
     shopsanity:  document.getElementById('shopsanity-toggle') && document.getElementById('shopsanity-toggle').checked ? 'yes' : 'no',
     bonkShuffle: document.getElementById('bonkshuffle-toggle') && document.getElementById('bonkshuffle-toggle').checked ? 'yes' : 'no',
     randomPrize: document.getElementById('randomprize-toggle') && document.getElementById('randomprize-toggle').checked ? 'yes' : 'no',
+    doorShuffle: doorShuffleValue(),
     entranceShuffle: esToggle && esToggle.checked ? 'on' : 'none',
     raceMode:   document.getElementById('racemode-toggle') && document.getElementById('racemode-toggle').checked ? 'yes' : 'no',
     apiEnabled: document.getElementById('api-enabled') && document.getElementById('api-enabled').checked ? 'yes' : 'no',
@@ -1556,6 +1578,7 @@ function save() {
   localStorage.setItem('alttp-shopsanity', s.shopsanity);
   localStorage.setItem('alttp-bonk-shuffle', s.bonkShuffle);
   localStorage.setItem('alttp-random-prize', s.randomPrize);
+  localStorage.setItem('alttp-door-shuffle', s.doorShuffle);
   localStorage.setItem('alttp-entrance-shuffle', s.entranceShuffle === 'none' ? 'no' : 'yes');
   localStorage.setItem('alttp-entrance-shuffle-mode', s.entranceShuffle);
   localStorage.setItem('alttp-race-mode', s.raceMode);
@@ -1579,10 +1602,11 @@ function save() {
 var POTTERY_FULL = { reduced:1, clustered:1, nonempty:1, dungeon:1, lottery:1 };
 function potteryValue()   { return (document.getElementById('pottery-select')   || {}).value || 'none'; }
 function enemyDropValue() { return (document.getElementById('enemydrop-select') || {}).value || 'none'; }
+function doorShuffleValue() { return (document.getElementById('doorshuffle-select') || {}).value || 'none'; }
 
 function mapUrl(s) {
   var entFlag = (s.entranceShuffle === 'none') ? 'no' : 'yes';
-  return 'map.html?zoom=' + s.zoom + '&enemizer=' + s.enemizer + '&gtcrystals=' + s.gtCrystals + '&gamemode=' + s.gamemode + '&dungeonitems=' + s.dungeonItems + '&dungeonshuffle=' + (s.dungeonShuffle || '') + '&swordless=' + s.swordless + '&universalkeys=' + s.universalKeys + '&keydropall=' + s.keyDropAll + '&keydrop=' + s.keyDrop + '&enemykeydrop=' + s.enemyKeyDrop + '&bossshuffle=' + s.bossshuffle + '&entranceshuffle=' + entFlag + '&entrancemode=' + s.entranceShuffle + '&shopsanity=' + s.shopsanity + '&bonkshuffle=' + s.bonkShuffle + '&potdrops=' + s.potDrops + '&enemydrops=' + s.enemyDrops + '&potsbones=' + s.potsBones + '&pottery=' + s.pottery + '&logic=' + s.logicMode;
+  return 'map.html?zoom=' + s.zoom + '&enemizer=' + s.enemizer + '&gtcrystals=' + s.gtCrystals + '&gamemode=' + s.gamemode + '&dungeonitems=' + s.dungeonItems + '&dungeonshuffle=' + (s.dungeonShuffle || '') + '&swordless=' + s.swordless + '&universalkeys=' + s.universalKeys + '&keydropall=' + s.keyDropAll + '&keydrop=' + s.keyDrop + '&enemykeydrop=' + s.enemyKeyDrop + '&bossshuffle=' + s.bossshuffle + '&entranceshuffle=' + entFlag + '&entrancemode=' + s.entranceShuffle + '&shopsanity=' + s.shopsanity + '&bonkshuffle=' + s.bonkShuffle + '&potdrops=' + s.potDrops + '&enemydrops=' + s.enemyDrops + '&potsbones=' + s.potsBones + '&pottery=' + s.pottery + '&logic=' + s.logicMode + '&doorshuffle=' + s.doorShuffle;
 }
 
 // The small-key store is meant to carry keys between the tracker's own windows
@@ -1802,6 +1826,9 @@ window.addEventListener('DOMContentLoaded', async function() {
   var bonkshuffleToggle = document.getElementById('bonkshuffle-toggle');
   if (bonkshuffleToggle) bonkshuffleToggle.checked = (bsVal === 'yes');
 
+  var dsSel = document.getElementById('doorshuffle-select');
+  if (dsSel) dsSel.value = saved.doorShuffle || localStorage.getItem('alttp-door-shuffle') || 'none';
+
   var rpVal = saved.randomPrize || localStorage.getItem('alttp-random-prize') || 'no';
   var randomprizeToggle = document.getElementById('randomprize-toggle');
   if (randomprizeToggle) randomprizeToggle.checked = (rpVal === 'yes');
@@ -1935,6 +1962,8 @@ function updateOtherSettingsSummary() {
     var t = document.getElementById(o.id);
     return t && t.checked && !t.disabled;
   });
+  var door = doorShuffleValue();
+  if (door !== 'none') on = on.concat([{ short: door === 'crossed' ? 'Doors Crossed' : 'Doors Basic' }]);
   if (!on.length) { el.textContent = 'None'; el.style.color = '#666'; return; }
   // Two names fit; past that the row would overflow its 152px-label layout.
   el.textContent = on.length <= 2
@@ -1962,6 +1991,8 @@ document.addEventListener('DOMContentLoaded', function() {
     var t = document.getElementById(o.id);
     if (t) t.addEventListener('change', updateOtherSettingsSummary);
   });
+  var ds = document.getElementById('doorshuffle-select');
+  if (ds) ds.addEventListener('change', function() { save(); updateOtherSettingsSummary(); });
   // Clicks inside the panel must not close it — the checkboxes live there.
   panel.addEventListener('click', function(e) { e.stopPropagation(); });
   document.addEventListener('click', closeOtherSettings);
@@ -2527,6 +2558,58 @@ var BUILTIN_PRESETS = {
     pottery: 'none',
     enemyDrop: 'none',
   },
+  // The reference tracker's three door presets (alttptracker js/index.js).
+  // All crossed doors with pseudo boots; Crisscross's random GT requirement
+  // has no setting here, so it starts at 7.
+  beginnerdoors: {
+    label: 'Beginner Doors',
+    dungeonItems: 'standard',
+    dungeonShuffle: '',
+    gtCrystals: '7',
+    gamemode: 'standard',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+    pseudoBoots: true,
+    doorShuffle: 'crossed',
+  },
+  intermediatedoors: {
+    label: 'Intermediate Doors',
+    dungeonItems: 'mapcompasskeys',
+    dungeonShuffle: 'bk',
+    gtCrystals: '7',
+    gamemode: 'standard',
+    entranceShuffle: false,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+    pseudoBoots: true,
+    doorShuffle: 'crossed',
+  },
+  crisscross: {
+    label: 'Crisscross',
+    dungeonItems: 'keysanity',
+    dungeonShuffle: 'mcbk',
+    gtCrystals: '7',
+    gamemode: 'open',
+    entranceShuffle: true,
+    bossShuffle: false,
+    enemizer: false,
+    swordless: false,
+    logicMode: 'noglitches',
+    pottery: 'none',
+    enemyDrop: 'none',
+    pseudoBoots: true,
+    shopsanity: true,
+    doorShuffle: 'crossed',
+  },
   // The two AD presets. Both touch the Other Settings menu, which is what
   // proves applyPresetSettings reaches into that popup — key drop, pseudo boots
   // and the mirror scroll all live there.
@@ -2732,6 +2815,8 @@ function applyPresetSettings(cfg) {
     var t = document.getElementById(o.id);
     if (t) t.checked = !!cfg[o.cfg];
   });
+  var dsSel = document.getElementById('doorshuffle-select');
+  if (dsSel) dsSel.value = cfg.doorShuffle || 'none';   // same rule: unnamed means off
 
   // Re-sync the Yes/No text labels and persist the now-applied settings.
   ['entranceshuffle','bossshuffle','enemizer','universalkeys','keydropall','keydrop','enemykeydrop','swordless','pseudoboots','mirrorscroll','shopsanity','bonkshuffle','racemode'].forEach(function(name) {
@@ -2777,6 +2862,7 @@ function captureCurrentSettings() {
     var t = document.getElementById(o.id);
     out[o.cfg] = !!(t && t.checked);
   });
+  out.doorShuffle = doorShuffleValue();
   return out;
 }
 

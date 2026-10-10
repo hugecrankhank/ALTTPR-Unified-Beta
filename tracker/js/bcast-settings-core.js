@@ -23,7 +23,6 @@ var SETTINGS = {
   showBigKey:    true,
   showChests:    true,
   dungeonFillEnabled: true, // When false the chests-done/prize-done tints are suppressed
-  hereDot:            false, // you-are-here dot beside the dungeon name; off by default, never in Race Mode
   dungeonBoxEnabled:  true, // When false the default dark slot container is hidden — flat dungeons
   viewStyle:       'modern',     // 'modern' | 'classic'
   itemAnimEnabled: false,        // When true, full-screen spin-in animation on item collect
@@ -146,7 +145,6 @@ function loadSettings() {
     SETTINGS.showChests    = localStorage.getItem('alttp-broadcast-show-chests')     !== 'false';
     SETTINGS.dungeonFillEnabled = localStorage.getItem('alttp-broadcast-dungeon-fill') !== 'false';
     SETTINGS.dungeonBoxEnabled  = localStorage.getItem('alttp-broadcast-dungeon-box')  !== 'false';
-    SETTINGS.hereDot            = localStorage.getItem('alttp-broadcast-here-dot') === 'true';
     SETTINGS.viewStyle       = localStorage.getItem('alttp-broadcast-view-style')        || SETTINGS.viewStyle;
     SETTINGS.itemAnimEnabled    = localStorage.getItem('alttp-broadcast-item-anim') === 'true';
     SETTINGS.animShowLabel      = localStorage.getItem('alttp-broadcast-anim-label') !== 'false';
@@ -234,7 +232,6 @@ function saveSettings() {
     localStorage.setItem('alttp-broadcast-show-chests',     SETTINGS.showChests    ? 'true' : 'false');
     localStorage.setItem('alttp-broadcast-dungeon-fill',    SETTINGS.dungeonFillEnabled ? 'true' : 'false');
     localStorage.setItem('alttp-broadcast-dungeon-box',     SETTINGS.dungeonBoxEnabled  ? 'true' : 'false');
-    localStorage.setItem('alttp-broadcast-here-dot',        SETTINGS.hereDot            ? 'true' : 'false');
     localStorage.setItem('alttp-broadcast-view-style',      SETTINGS.viewStyle);
     localStorage.setItem('alttp-broadcast-item-anim',        SETTINGS.itemAnimEnabled    ? 'true' : 'false');
     localStorage.setItem('alttp-broadcast-anim-label',      SETTINGS.animShowLabel      ? 'true' : 'false');

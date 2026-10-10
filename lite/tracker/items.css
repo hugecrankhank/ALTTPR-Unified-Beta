@@ -830,6 +830,10 @@ html.no-boss-shuffle .boss-circle:hover {
     margin-bottom: -1px;
 }
 
+/* Both CT rows showing (drop modes, Door Shuffle Crossed): the key row's -3px
+   bottom and this row's -3px top overlapped the two counts (Chris, Oct 2026). */
+.ct-group .stat-ctkey + .stat-ctitem { margin-top: 2px; }
+
 .stat-ctitem .stat-label {
     margin-right: 2px;
     opacity: 1;
@@ -1117,13 +1121,3 @@ html.dfill-on[data-bg="white"] .dungeon-slot.prize-obtained {
 }
 .its-file-btn:hover { border-color: #4dff88; color: #fff; }
 
-/* You-are-here dot: the dungeon Link is in right now ($7E040C). */
-/* Absolutely placed just right of the text, so the narrow pendant slots don't
-   wrap it onto a hidden second line. */
-/* Only with the setting on and Race Mode off (html.show-here-dot). */
-.show-here-dot .dng-here .dungeon-label { position: relative; }
-.show-here-dot .dng-here .dungeon-label::after {
-  content: ''; position: absolute; top: 50%; margin-top: -3px; margin-left: 1px;
-  width: 6px; height: 6px; z-index: 3;   /* over the map/compass icons beside a pendant label */
-  border-radius: 50%; background: #4dff88; box-shadow: 0 0 4px #4dff88;
-}

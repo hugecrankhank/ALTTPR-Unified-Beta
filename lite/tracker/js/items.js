@@ -126,7 +126,7 @@ let previousSRAM = null;
 // Bumped with every change to this file, relayed in the broadcast snapshot so
 // the map's gear menu can show which build the ITEM TRACKER is running — the
 // two windows are packaged together but reload independently.
-window.ITEMS_BUILD = '1126r';
+window.ITEMS_BUILD = '1126z';
 let _bombClearTimer = null; // debounce: only clear bombs after sustained 0 reading
 
 const items = {
@@ -918,6 +918,12 @@ window.keyDropExtras = function(key) {
 // CT's small key count: 2 normally, 4 under key drop. CT has no dungeon object,
 // so its max lives here rather than on `dungeons`.
 window.ctMaxSmallKeys = function() {
+    // Door Shuffle Crossed: CT gets rooms (and keys, chests) from elsewhere;
+    // the game says how many once it has shown them. Unknown → the same
+    // stand-in ceiling the dungeons use, displayed as '?'.
+    if (window.doorShuffleMode && window.doorShuffleMode() === 'crossed') {
+        return (window._ctDoor && window._ctDoor.keys != null) ? window._ctDoor.keys : DOOR_UNKNOWN_KEYS;
+    }
     var seed = window.seedCountsFor('ct');
     if (seed) return seed.keys;
     var fb = window.dropModeFallback && window.dropModeFallback('ct');
@@ -930,11 +936,24 @@ window.ctMaxSmallKeys = function() {
 // which today means a drop mode. CT has no map, compass or big key, so there is
 // nothing to subtract beyond the keys.
 window.ctMaxItems = function() {
+    if (window.doorShuffleMode && window.doorShuffleMode() === 'crossed') {
+        return (window._ctDoor && window._ctDoor.total != null) ? window._ctDoor.total : DOOR_UNKNOWN_ITEMS;
+    }
     var seed = window.seedCountsFor('ct');
     if (seed) return Math.max(0, seed.locations - seed.keys);
     var fb = window.dropModeFallback && window.dropModeFallback('ct');
     if (fb) return Math.max(0, fb.locations - fb.keys);
     return Math.max(0, (2 + window.keyDropExtras('ct').locations) - window.ctMaxSmallKeys());
+};
+
+// What the CT boxes print as their max: '?' while Crossed hasn't shown it.
+window.ctKeyMaxLabel = function() {
+    var crossed = window.doorShuffleMode && window.doorShuffleMode() === 'crossed';
+    return (crossed && !(window._ctDoor && window._ctDoor.keys != null)) ? '?' : window.ctMaxSmallKeys();
+};
+window.ctItemMaxLabel = function() {
+    var crossed = window.doorShuffleMode && window.doorShuffleMode() === 'crossed';
+    return (crossed && !(window._ctDoor && window._ctDoor.total != null)) ? '?' : window.ctMaxItems();
 };
 
 // ── The seed's own counts ────────────────────────────────────────────────────
@@ -1343,7 +1362,27 @@ window.applyDungeonItemMaxes = function() {
             d.maxItems = Math.min(d.maxItems + (d.maxSmallKeys || 0), d.maxChests);
         });
     }
+    // Door Shuffle: Crossed. Rooms move between dungeons, so none of the
+    // totals above hold; each dungeon's own come from the game once it has
+    // shown them (doorCrossedCounts). Until then they're unknown — '?'.
+    if (window.doorShuffleMode && window.doorShuffleMode() === 'crossed') {
+        Object.keys(dungeons).forEach(function(k) {
+            var d = dungeons[k];
+            d.totalUnknown = d.doorTotal == null;
+            d.keysUnknown  = d.doorKeys  == null;
+            d.maxItems     = d.totalUnknown ? DOOR_UNKNOWN_ITEMS : d.doorTotal;
+            d.maxChests    = Math.max(d.maxChests, d.maxItems);
+            // Keys are clamped to this as they're read, so unknown can't be 0.
+            d.maxSmallKeys = d.keysUnknown ? DOOR_UNKNOWN_KEYS : d.doorKeys;
+        });
+    } else {
+        Object.keys(dungeons).forEach(function(k) {
+            dungeons[k].totalUnknown = dungeons[k].keysUnknown = false;
+        });
+    }
 };
+// Ceilings standing in for "not known yet" under Crossed; shown as '?'.
+var DOOR_UNKNOWN_ITEMS = 99, DOOR_UNKNOWN_KEYS = 29;
 window.applyDungeonItemMaxes();
 
 // ── Retro small keys ──────────────────────────────────────────────────────────
@@ -1371,8 +1410,9 @@ window.updateCtItemBox = function(boxEl) {
     box.style.cursor  = deviceAttached ? 'default' : 'pointer';
     var n = (window.trackerItems && window.trackerItems.ctItems) || 0;
     if (n > max) n = max;
-    el.textContent = n + '/' + max;
-    el.style.color = (max > 0 && n >= max) ? '#2ecc71' : '';
+    var lbl = window.ctItemMaxLabel();
+    el.textContent = n + '/' + lbl;
+    el.style.color = (lbl !== '?' && max > 0 && n >= max) ? '#2ecc71' : '';
     if (window.updateCtGroup) window.updateCtGroup();
 };
 
@@ -1432,7 +1472,7 @@ window.updateCtKeyBox = function(boxEl) {
         el.style.color = '';
     } else {
         var n = (window.trackerItems && window.trackerItems.ctSmallKeys) || 0;
-        el.textContent = n + '/' + ctMax;
+        el.textContent = n + '/' + window.ctKeyMaxLabel();
         el.style.color = n >= ctMax ? '#2ecc71' : '';
     }
 };
@@ -1575,6 +1615,23 @@ window.dungeonModeLabel = function () {
 // The four shuffle flags changed elsewhere (the map's settings menu). Held as
 // an override because the window's own query string would otherwise keep
 // winning for the rest of the session.
+// Door Shuffle changed from the map's settings. The counts restart from the
+// next room read: Crossed counts with the game's tallies and the other modes
+// with room bits, and each keeps a high-water mark the other would inherit.
+window.applyDoorShuffleChange = function(v) {
+    try { localStorage.setItem('alttp-door-shuffle', v); } catch (e) {}
+    if (window.trackerSettings) window.trackerSettings.doorShuffle = v;
+    if (deviceAttached) {
+        Object.keys(dungeons).forEach(function(k) { dungeons[k].itemCount = 0; });
+        if (window.trackerItems) window.trackerItems.ctItems = 0;
+    }
+    window.applyDungeonItemMaxes();
+    window.repaintAllDungeons();
+    if (window.updateCtKeyBox)  window.updateCtKeyBox();
+    if (window.updateCtItemBox) window.updateCtItemBox();
+    if (window.broadcastItemSnap) window.broadcastItemSnap();
+};
+
 window.applyDungeonShuffleChange = function(str) {
     if (str === null || str === undefined) return;
     window._dungeonShuffleOverride = str;
@@ -1808,7 +1865,7 @@ window.addEventListener('storage', function(ev) {
 // The text for a dungeon's small-key readout, in whichever world state is live.
 window.smallKeyLabel = function(d) {
     if (!d) return '';
-    var max = d.maxSmallKeys || 0;
+    var max = d.keysUnknown ? '?' : (d.maxSmallKeys || 0);
     return window.keysAreUniversal() ? String(max) : (d.smallKeyCount || 0) + '/' + max;
 };
 
@@ -2153,7 +2210,7 @@ function createTracker() {
                 
                 const itemCount = document.createElement('span');
                 itemCount.className = 'item-count';
-                itemCount.textContent = `0/${dungeons[itemKey].maxItems}`;
+                itemCount.textContent = `0/${dungeons[itemKey].totalUnknown ? '?' : dungeons[itemKey].maxItems}`;
                 itemCount.dataset.dungeonKey = itemKey;
                 
                 itemContainer.appendChild(chestImg);
@@ -2268,7 +2325,7 @@ function createTracker() {
                         if (cur < ctMax) {
                             window.trackerItems.ctSmallKeys = cur + 1;
                             var el = document.getElementById('toh-ctkey-count');
-                            if (el) { el.textContent = window.trackerItems.ctSmallKeys + '/' + ctMax; el.style.color = window.trackerItems.ctSmallKeys >= ctMax ? '#2ecc71' : ''; }
+                            if (el) { el.textContent = window.trackerItems.ctSmallKeys + '/' + window.ctKeyMaxLabel(); el.style.color = window.trackerItems.ctSmallKeys >= ctMax ? '#2ecc71' : ''; }
                             if (window.broadcastItemSnap) window.broadcastItemSnap();
                         }
                     });
@@ -2283,7 +2340,7 @@ function createTracker() {
                             window.trackerItems.ctSmallKeys = cur - 1;
                             var el = document.getElementById('toh-ctkey-count');
                             var ctMax = window.ctMaxSmallKeys();
-                            if (el) { el.textContent = window.trackerItems.ctSmallKeys + '/' + ctMax; el.style.color = window.trackerItems.ctSmallKeys >= ctMax ? '#2ecc71' : ''; }
+                            if (el) { el.textContent = window.trackerItems.ctSmallKeys + '/' + window.ctKeyMaxLabel(); el.style.color = window.trackerItems.ctSmallKeys >= ctMax ? '#2ecc71' : ''; }
                             if (window.broadcastItemSnap) window.broadcastItemSnap();
                         }
                     });
@@ -2696,8 +2753,8 @@ function updateDungeonCountDisplay(dungeonKey) {
         // a dungeon can complete without a chest the player chooses to skip.
         const effMax = Math.max(0, dungeon.maxItems - (dungeon.skipped || 0));
         const shownCount = Math.min(dungeon.itemCount, effMax);
-        const allItemsCollected = shownCount >= effMax;
-        const allKeysCollected  = dungeon.maxSmallKeys > 0
+        const allItemsCollected = !dungeon.totalUnknown && shownCount >= effMax;
+        const allKeysCollected  = dungeon.maxSmallKeys > 0 && !dungeon.keysUnknown
             ? dungeon.smallKeyCount >= dungeon.maxSmallKeys
             : false;
 
@@ -2722,11 +2779,11 @@ function updateDungeonCountDisplay(dungeonKey) {
         // Update item count and chest icon
         const itemCountSpan = slot.querySelector('.item-count');
         if (itemCountSpan) {
-            itemCountSpan.textContent = `${shownCount}/${effMax}`;
+            itemCountSpan.textContent = `${shownCount}/${dungeon.totalUnknown ? '?' : effMax}`;
             // Switch chest icon to chest00.png when all items collected
             const chestIcon = slot.querySelector('.count-icon[alt="Items"]');
             if (chestIcon) {
-                chestIcon.src = `${BASE_URL}/${shownCount >= effMax ? 'chest00.png' : 'chest0.png'}`;
+                chestIcon.src = `${BASE_URL}/${allItemsCollected ? 'chest00.png' : 'chest0.png'}`;
             }
             if (window.broadcastItemSnap) window.broadcastItemSnap();
         }
@@ -2928,6 +2985,9 @@ function _broadcastItemSnapNow() {
         var _nc = window.dungeonNonChest ? window.dungeonNonChest(_k) : null;
         snap[_k+'NonChestDone']  = _nc ? _nc.done  : null;
         snap[_k+'NonChestTotal'] = _nc ? _nc.total : null;
+        if (_k === 'ct') window.ctDoorSnap(snap);
+        // HC's key total, for the map's Door Shuffle green (the dungeon loop skips HC).
+        if (_k === 'hc' && window.dungeons && window.dungeons.hc) snap.hcMaxSmallKeys = window.dungeons.hc.keysUnknown ? '?' : (window.dungeons.hc.maxSmallKeys || 0);
     });
     snap.epBigKey     = (window.trackerItems && window.trackerItems.epBigKey)     || 0;
     snap.dpBigKey     = (window.trackerItems && window.trackerItems.dpBigKey)     || 0;
@@ -2957,12 +3017,12 @@ function _broadcastItemSnapNow() {
         // broadcast view shows the same reduced count and completion state.
         var _effMax = Math.max(0, (d.maxItems || 0) - (d.skipped || 0));
         snap[k+'Chests']        = Math.min(d.itemCount || 0, _effMax);
-        snap[k+'MaxChests']     = _effMax;
+        snap[k+'MaxChests']     = d.totalUnknown ? '?' : _effMax;   // Crossed, not seen yet
         snap[k+'Skipped']       = d.skipped || 0;
         snap[k+'BigKey']        = d.bigkeyState     || 0;
         snap[k+'Map']           = d.mapState        || 0;
         snap[k+'Compass']       = d.compassState    || 0;
-        snap[k+'MaxSmallKeys']  = d.maxSmallKeys    || 0;
+        snap[k+'MaxSmallKeys']  = d.keysUnknown ? '?' : (d.maxSmallKeys || 0);
         snap[k+'BigKeyOnly']    = !!d.bigkeyOnly;
         // Boss state for the map's stripe overlay: send the selected boss
         // number (0 = unknown) and whether its item requirement is currently
@@ -3445,12 +3505,6 @@ window._currentDungeon = null;
 function setCurrentDungeon(key) {
     var changed = key !== window._currentDungeon;
     window._currentDungeon = key;
-    // Re-applied on every read, not just on a change: the dungeon slots are
-    // rebuilt when the layout or dungeon-item mode changes, and a rebuilt
-    // slot would otherwise lose its dot until Link next moved.
-    document.querySelectorAll('[data-dungeon-key]').forEach(function (el) {
-        el.classList.toggle('dng-here', el.getAttribute('data-dungeon-key') === key);
-    });
     if (changed && window.broadcastItemSnap) window.broadcastItemSnap();
 }
 function processDungeonId(id) {
@@ -3479,22 +3533,34 @@ function cardPrize(k) {
     var m = /^(greenpendant|redcrystal|pendant|crystal|unknown)/.exec(f);
     return { prize: m ? m[1] : 'unknown', got: /1\.png$/.test(f) };
 }
+// CT's counts on the snapshot under Crossed, where it can hold chests too.
+// Outside Crossed nothing is added, so the map's CT card is unchanged.
+window.ctDoorSnap = function (snap) {
+    if (!(window.doorShuffleMode && window.doorShuffleMode() === 'crossed')) return;
+    snap.ctChests       = (window.trackerItems || {}).ctItems || 0;
+    snap.ctMaxChests    = window.ctItemMaxLabel();
+    snap.ctMaxSmallKeys = window.ctKeyMaxLabel();
+};
+
 window.dungeonCardState = function () {
     var k = window._currentDungeon;
     if (!k) return null;
     var d = (window.dungeons && window.dungeons[k]) || {};
     var c = window.dngCardCounts ? window.dngCardCounts(k) : { opened: 0, total: 0, bossBeaten: null };
     var ti = window.trackerItems || {};
+    var _crossed = window.doorShuffleMode && window.doorShuffleMode() === 'crossed';
     return {
         id:         k,
-        chests:     c.opened,
-        maxChests:  c.total,
+        // Crossed: room flags belong to whichever dungeon a room went to, so
+        // use the tracker's own counts (the game's tallies).
+        chests:     !_crossed ? c.opened : (k === 'ct' ? ((window.trackerItems || {}).ctItems || 0) : (d.itemCount || 0)),
+        maxChests:  !_crossed ? c.total  : (k === 'ct' ? window.ctItemMaxLabel() : (d.totalUnknown ? '?' : d.maxItems)),
         keys:       ti[k + 'SmallKeys'] || d.smallKeyCount || 0,
-        maxKeys:    k === 'ct' && window.ctMaxSmallKeys ? window.ctMaxSmallKeys() : (d.maxSmallKeys || 0),
+        maxKeys:    k === 'ct' ? window.ctKeyMaxLabel() : (d.keysUnknown ? '?' : (d.maxSmallKeys || 0)),
         // null = this dungeon has none (Agahnim's Tower has no map, compass or big key)
         map:        (k === 'ct' || !d.mapAddr) ? null : !!d.mapState,
         compass:    (k === 'ct' || d.noCompass) ? null : !!d.compassState,
-        bigKey:     (k === 'ct' || d.noBigKeyItem) ? null : !!d.bigkeyState,
+        bigKey:     k === 'ct' ? null : !!d.bigkeyState, // HC always has one (Ball-and-Chain drop), same as the tracker
         boss:       k === 'ct' ? 'Agahnim' : k === 'gt' ? 'Agahnim 2'
                   : (CARD_BOSS_NAMES[d.bossState || 0] || null),
         // The item tracker's boss picture (boss/boss<n>.png; 0 = unknown).
@@ -3698,6 +3764,13 @@ function processRoomData(data) {
             }
         }
         
+        // Door Shuffle Crossed: room bits belong to whichever dungeon the room
+        // ended up in, so count with the game's own per-dungeon tallies.
+        if (window.doorShuffleMode && window.doorShuffleMode() === 'crossed') {
+            doorCrossedCounts(key, dungeon, data);
+            continue;
+        }
+
         // Track chests using [room, bitmask] locations
         if (dungeon.locations) {
             let chestsOpened = 0;
@@ -3814,7 +3887,9 @@ function processRoomData(data) {
     // Only in a drop mode — outside one CT's locations are all keys and the
     // item box is hidden anyway.
     var _ctChecks = window.checksDoneFor('ct', data);
-    if (_ctChecks !== null) {
+    if (window.doorShuffleMode && window.doorShuffleMode() === 'crossed') {
+        doorCrossedCt(data);
+    } else if (_ctChecks !== null) {
         if (!window.trackerItems) window.trackerItems = {};
         var _ctKeysHeld = window.trackerItems.ctSmallKeys || 0;
         window.trackerItems.ctItems = Math.max(0, _ctChecks - _ctKeysHeld);
@@ -3827,6 +3902,78 @@ function processRoomData(data) {
     if (window._itemsBc) {
         window._itemsBc.postMessage({ type: 'rooms', data: Array.from(data) });
     }
+}
+
+// ── Door Shuffle: Crossed ────────────────────────────────────────────────────
+// The Door Randomizer keeps the same per-dungeon tallies ALTTPR does — checks
+// done at $7EF4B0 (16-bit, SEED_COUNT_SLOT order), the seed's location and key
+// totals at $F65410 / $F65430 — plus two "seen" masks the game sets once it
+// has shown a dungeon's counts: items at $7EF403, keys at $7EF474 (16-bit,
+// high byte first). Read the way the reference tracker reads them
+// (alttptracker autot.js), all inside the 0x500 room read we already make.
+// Untested against a live door seed — shortcut: check the seen masks and the
+// key subtraction against hardware before trusting the totals.
+var DOOR_SEEN_BIT = { hc:0x00c0, ep:0x0020, dp:0x0010, toh:0x2000, pod:0x0002,
+                      sp:0x0004, sw:0x8000, tt:0x1000, ip:0x4000, mm:0x0001,
+                      tr:0x0800, gt:0x0400 };
+function doorCrossedCounts(key, d, data) {
+    var slot = window.SEED_COUNT_SLOT[key], bit = DOOR_SEEN_BIT[key];
+    if (slot === undefined || !bit || data.length < 0x4b0 + 2 * slot + 2) return;
+    var done = data[0x4b0 + 2 * slot] | (data[0x4b0 + 2 * slot + 1] << 8);
+    var itemsSeen = ((data[0x403] << 8) | data[0x404]) & bit;
+    var keysSeen  = ((data[0x474] << 8) | data[0x475]) & bit;
+    var row = (window._seedCountRaw || {})[key];
+    var total   = (itemsSeen && row && row.locations > 0 && row.locations < 400) ? row.locations : null;
+    var keyMax  = (keysSeen && row && row.keys < 64) ? row.keys : null;
+    // Once shown, a total stays known: a save & quit clears the seen masks
+    // (and blanks the block for a poll or two), which put every dungeon back
+    // to '?' (Chris, Oct 2026). Cleared on New Game (resetItemTracker).
+    if (total  === null) total  = d.doorLocsSeen != null ? d.doorLocsSeen : null;
+    if (keyMax === null) keyMax = d.doorKeysSeen != null ? d.doorKeysSeen : null;
+    d.doorLocsSeen = total; d.doorKeysSeen = keyMax;
+    // Keys in their own dungeon aren't items: take them off both sides, using
+    // the keys-collected high-water so spending one doesn't put it back.
+    if (!window.shuffleSmallKeys() && keyMax !== null) {
+        done -= Math.min(d.smallKeyMax || d.smallKeyCount || 0, keyMax);
+        if (total !== null) total -= keyMax;
+    }
+    done = Math.max(0, done, d.itemCount || 0);           // high-water, as elsewhere
+    if (total !== d.doorTotal || keyMax !== d.doorKeys) {
+        d.doorTotal = total; d.doorKeys = keyMax;
+        window.applyDungeonItemMaxes();
+        if (window.repaintAllDungeons) window.repaintAllDungeons();
+    }
+    if (done !== d.itemCount) {
+        d.itemCount = Math.min(done, d.maxItems);
+        updateDungeonCountDisplay(key);
+    }
+}
+
+// CT under Crossed: same reads as doorCrossedCounts, but CT has no `dungeons`
+// entry — its counts live in trackerItems.ctItems / ctSmallKeys and its
+// totals in window._ctDoor, which ctMaxItems / ctMaxSmallKeys read.
+function doorCrossedCt(data) {
+    var slot = window.SEED_COUNT_SLOT.ct, bit = 0x0008;
+    if (data.length < 0x4b0 + 2 * slot + 2) return;
+    var ti = window.trackerItems || (window.trackerItems = {});
+    var done = data[0x4b0 + 2 * slot] | (data[0x4b0 + 2 * slot + 1] << 8);
+    var itemsSeen = ((data[0x403] << 8) | data[0x404]) & bit;
+    var keysSeen  = ((data[0x474] << 8) | data[0x475]) & bit;
+    var row = (window._seedCountRaw || {}).ct;
+    var total  = (itemsSeen && row && row.locations > 0 && row.locations < 400) ? row.locations : null;
+    var keyMax = (keysSeen && row && row.keys < 64) ? row.keys : null;
+    var seen = window._ctDoorSeen || (window._ctDoorSeen = {});   // sticky, as above
+    if (total  === null) total  = seen.locs != null ? seen.locs : null;
+    if (keyMax === null) keyMax = seen.keys != null ? seen.keys : null;
+    seen.locs = total; seen.keys = keyMax;
+    if (!window.shuffleSmallKeys() && keyMax !== null) {
+        done -= Math.min(ti.ctSmallKeysMax || ti.ctSmallKeys || 0, keyMax);
+        if (total !== null) total -= keyMax;
+    }
+    window._ctDoor = { total: total, keys: keyMax };
+    ti.ctItems = Math.max(0, done, ti.ctItems || 0);
+    if (window.updateCtItemBox) window.updateCtItemBox();
+    if (window.updateCtKeyBox) window.updateCtKeyBox();
 }
 
 // Count set bits in a byte.
@@ -4136,7 +4283,7 @@ function processInventoryData(data) {
         // Crystal count from trackerItems if available, else from items
         snap._itemsBuild = window.ITEMS_BUILD;   // the slim snap needs it as well,
                                                  // or the map's build line flickers
-        snap.currentDungeon = window._currentDungeon || null;   // both builders, or the dot flickers
+        snap.currentDungeon = window._currentDungeon || null;   // both builders, or overlays flicker
         snap.currentFloor   = window._currentDungeon ? (window._currentFloor || null) : null;
         snap.currentWorld   = window._currentWorld || null;
         snap.gtBk           = window.gtBkState ? window.gtBkState() : null;
@@ -4158,6 +4305,9 @@ function processInventoryData(data) {
             var _nc2 = window.dungeonNonChest ? window.dungeonNonChest(_k) : null;
             snap[_k+'NonChestDone']  = _nc2 ? _nc2.done  : null;
             snap[_k+'NonChestTotal'] = _nc2 ? _nc2.total : null;
+            if (_k === 'ct') window.ctDoorSnap(snap);
+            // HC's key total, for the map's Door Shuffle green (the dungeon loop skips HC).
+            if (_k === 'hc' && window.dungeons && window.dungeons.hc) snap.hcMaxSmallKeys = window.dungeons.hc.keysUnknown ? '?' : (window.dungeons.hc.maxSmallKeys || 0);
         });
         snap.epBigKey     = (window.trackerItems && window.trackerItems.epBigKey)     || 0;
         snap.dpBigKey     = (window.trackerItems && window.trackerItems.dpBigKey)     || 0;
@@ -4346,7 +4496,7 @@ function processInventoryData(data) {
         // working; only the visible label is left alone in Retro.
         if (ctKeyEl && !(window.ctKeyBoxIsStatic && window.ctKeyBoxIsStatic())) {
             const ctMax = window.ctMaxSmallKeys();   // 2 normally, 4 under key drop
-            ctKeyEl.textContent = ctKeys + '/' + ctMax;
+            ctKeyEl.textContent = ctKeys + '/' + window.ctKeyMaxLabel();
             ctKeyEl.style.color = ctKeys >= ctMax ? '#2ecc71' : '';
         }
     }
@@ -4462,6 +4612,7 @@ function updateItemState(itemKey, state) {
 }
 
 function resetItemTracker() {
+    window._ctDoorSeen = null; window._ctDoor = null;   // Crossed: CT's totals belong to the old seed
     window._currentWorld = null; if (window.setCurrentDungeon) window.setCurrentDungeon(null);
     // Clear the hover panel's per-location marks (js/dngpanel.js owns the store)
     if (window.dngLocClearedReset) window.dngLocClearedReset();
@@ -4508,6 +4659,7 @@ function resetItemTracker() {
         d.prizeState    = window.defaultPrizeIndex();
         d.bossState     = 0;
         d.otherCleared  = false;
+        d.doorLocsSeen = d.doorKeysSeen = d.doorTotal = d.doorKeys = null;   // Crossed totals: a new seed
         const slot = document.querySelector(`[data-dungeon-key="${key}"]`);
         if (!slot) return;
         // Reset prize image
@@ -4601,6 +4753,14 @@ function resetItemTracker() {
         Object.keys(VANILLA_BOSSES).forEach(function(key) {
             setBoss(key, VANILLA_BOSSES[key]);
         });
+    }
+
+    // Crossed totals were forgotten above; put every dungeon and CT back to '?'.
+    if (window.doorShuffleMode && window.doorShuffleMode() === 'crossed') {
+        window.applyDungeonItemMaxes();
+        window.repaintAllDungeons();
+        if (window.updateCtKeyBox)  window.updateCtKeyBox();
+        if (window.updateCtItemBox) window.updateCtItemBox();
     }
 
     // Broadcast reset to map (guard prevents infinite loop)

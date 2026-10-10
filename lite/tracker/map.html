@@ -738,6 +738,14 @@ body {
           </select>
         </div>
         <div class="set-row">
+          <label for="set-doorshuffle">Doors</label>
+          <select id="set-doorshuffle" class="tb-select">
+            <option value="none">None</option>
+            <option value="basic">Basic</option>
+            <option value="crossed">Crossed</option>
+          </select>
+        </div>
+        <div class="set-row">
           <label for="set-shopsanity"><input type="checkbox" id="set-shopsanity"> Shopsanity</label>
         </div>
         <div class="set-row">
@@ -940,6 +948,7 @@ window.addEventListener('click', function (e) {
   window.trackerSettings.shopsanity  = (p.get('shopsanity')  || localStorage.getItem('alttp-shopsanity')   || 'no') === 'yes';
   window.trackerSettings.bonkShuffle = (p.get('bonkshuffle') || localStorage.getItem('alttp-bonk-shuffle') || 'no') === 'yes';
   window.trackerSettings.randomPrize = (localStorage.getItem('alttp-random-prize') || 'no');
+  window.trackerSettings.doorShuffle = p.get('doorshuffle') || localStorage.getItem('alttp-door-shuffle') || 'none';
 })();
 </script>
 <script>
@@ -1179,7 +1188,7 @@ function dpKeyDropShort() {
 // Oct 2026).
 function swKeyDropShort() {
   if (!(window.dngKeysShuffled && (window.dngKeysShuffled('pot') || window.dngKeysShuffled('drop')))) return false;
-  return ((window.trackerItems || {}).swSmallKeys || 0) < 4;
+  return ((window.trackerItems || {}).swSmallKeys || 0) < 5;   // every key (Chris, Oct 2026)
 }
 
 // Ice Palace and Thieves' Town with their key drops shuffled: the deep lines
@@ -1390,14 +1399,18 @@ function dungeonColor(key) {
       //   2. a weapon for Agahnim himself
       // The cape is not a weapon, so the cape route still needs a sword. In
       // swordless the barrier is already broken and the hammer does the job.
-      if (!ksCt && !it.lamp) return 'red';
-      if (swordless) {
-        if (!it.hammer) return 'red';
-      } else if (!(it.sword >= 2 || it.cape)) {
+      // Door Shuffle: only the barrier is the way in. The lamp (dark maze) and
+      // the hammer for a swordless Agahnim are inside, and the rooms behind
+      // the barrier may belong to any dungeon now — so missing them is
+      // yellow, not red (Chris, Oct 2026: master sword, no lamp, read red).
+      var ctDoors = window.doorShuffleMode && window.doorShuffleMode() === 'crossed';
+      if (!swordless && !(it.sword >= 2 || it.cape)) {
         // The cape alone gets you past the barrier and into Room 03. A weapon
         // for Agahnim himself is the Boss line's business, on the card.
         return 'red';
       }
+      if (!ksCt && !it.lamp) return ctDoors ? 'yellow' : 'red';
+      if (swordless && !it.hammer) return ctDoors ? 'yellow' : 'red';
 
       if (shuffleSmallKeys()) {
         var ctKeys = (it.ctSmallKeys) || 0;
@@ -1773,8 +1786,9 @@ function dungeonColor(key) {
         // A found entrance labelled CT is the way in (entrance shuffle hides
         // the vanilla marker, so this branch only ever answers for the label).
         if (!isEntShuffleGT && !_gtHCFound && !_gtDWDM) return 'red';
-        if (!it.lamp) return 'red';
-        if (!(it.sword >= 1 || it.hammer || it.cape)) return 'red';
+        var _gtDoors = window.doorShuffleMode && window.doorShuffleMode() === 'crossed';
+        if (!it.lamp) return _gtDoors ? 'yellow' : 'red';   // dark rooms are inside
+        if (!(it.sword >= 1 || it.hammer || it.cape)) return _gtDoors ? 'yellow' : 'red';
         if (shuffleSmallKeys()) {
           var _gtCtKeys = (it.ctSmallKeys) || 0;
           if (_gtCtKeys < 2) return 'red';
@@ -1836,6 +1850,47 @@ window.dungeonColor = dungeonColor;
     } catch (e) {
     } finally { _busy = false; }
     return c;
+  };
+})();
+
+// ── Door Shuffle ─────────────────────────────────────────────────────────────
+// With the rooms shuffled there's no telling how a dungeon is laid out, so any
+// dungeon you can get into is yellow — green once bow, hookshot, bombs, fire
+// rod, a glove, lamp, hammer, flippers, the cane of somaria and boots are all in hand —
+// and red only when the way in is shut (Chris, Oct 2026). "Can get in" is the normal rule asked with everything a
+// dungeon only needs INSIDE treated as held — fire rod, cane of somaria,
+// boots, bow, every small key and big key — so what's left red is the way in.
+// The lamp can't go on that list (it also opens Death Mountain), so the two
+// Agahnim's Tower branches ask doorShuffleMode() themselves.
+(function () {
+  var _base = window.dungeonColor;
+  var KEYED = ['hc','ct','ep','dp','toh','pod','sp','sw','tt','ip','mm','tr','gt'];
+  window.dungeonColor = function (key) {
+    var mode = window.doorShuffleMode ? window.doorShuffleMode() : 'none';
+    if (mode !== 'crossed') return _base(key);   // Basic plays by the normal rules (Chris, Oct 2026)
+    var real = window.trackerItems || {};
+    var inside = Object.assign({}, real, { firerod: 1, somaria: 1, boots: 1, bow: Math.max(real.bow || 0, 1) });
+    KEYED.forEach(function (k) { inside[k + 'SmallKeys'] = 29; inside[k + 'BigKey'] = 1; });
+    var c;
+    window.trackerItems = inside;
+    try { c = _base(key); } finally { window.trackerItems = real; }
+    if (c === 'red' || c === 'purple') return c;
+    // Reachable: green once everything a shuffled dungeon could ask for is in
+    // hand (Chris, Oct 2026), the same in every world state.
+    var it = real;
+    var kit = it.bow >= 1 && it.hookshot && it.bomb && it.firerod && it.gloves >= 1 &&
+              it.lamp && it.hammer && it.flippers && it.somaria && it.boots;   // boots: bonk torches
+    // Key shuffle: and every one of the dungeon's keys. Inverted trades the CT
+    // and GT markers, so the key names the dungeon, not the marker.
+    var dk = (window.trackerSettings || {}).inverted ? ({ ct: 'gt', gt: 'ct' }[key] || key) : key;
+    if (kit && window.shuffleSmallKeys && window.shuffleSmallKeys()) {
+      var max = it[dk + 'MaxSmallKeys'];
+      if (dk === 'ct' && max === undefined) max = ctKeyGoal();
+      // Crossed sends '?' until the game shows the count — not known, not done.
+      kit = typeof max === 'number' && (it[dk + 'SmallKeys'] || 0) >= max;
+    }
+    if (kit && window.shuffleBigKey && window.shuffleBigKey() && dk !== 'ct') kit = !!it[dk + 'BigKey'];
+    return kit ? 'green' : 'yellow';
   };
 })();
 
@@ -2677,6 +2732,15 @@ window.keysAreUniversal = function(s) {
 // Kept as the old name for the CT-specific call sites.
 window.ctKeysAreUniversal = window.keysAreUniversal;
 
+// Where the inverted "always open" Dark World checks stand.
+var DW_CHECK_REGION = {
+  7: 'Inverted West Dark World',   // Brewery
+  8: 'Inverted West Dark World',   // C-Shaped House
+  64: 'Inverted West Dark World',  // Chest Game
+  16: 'Inverted South Dark World', // Hype Cave
+  67: 'Inverted South Dark World', // Stumpy
+  93: 'Inverted South Dark World'  // Digging Game
+};
 window.checkColor = function(id) {
   var it = window.trackerItems;
   if (!it) return 'red';
@@ -2699,8 +2763,15 @@ window.checkColor = function(id) {
     var _isEntShuffleFree = !!(window.trackerSettings && window.trackerSettings.entranceShuffle);
     var _dwFree = _isEntShuffleFree ? [8, 64, 67, 93] : [8, 64, 65, 67, 93];
     var _dwBomb = [7, 16];
-    if (_dwFree.indexOf(id) !== -1) return 'green';
-    if (_dwBomb.indexOf(id) !== -1) return (it.bomb >= 1 || it.bomb === true) ? 'green' : 'red';
+    // Inverted 2.0 + entrance shuffle: no home world until a start is placed,
+    // and then only the part of it you can actually reach (Chris, Oct 2026).
+    var _homeOk = true;
+    if (window.trackerSettings.inverted2 && _isEntShuffleFree && window.EntLogic && window.EntLogic.canReachRegion) {
+      var _homeRegion = DW_CHECK_REGION[id];
+      if (_homeRegion) _homeOk = window.EntLogic.canReachRegion(_homeRegion, window._entLogicItems ? window._entLogicItems() : {});
+    }
+    if (_dwFree.indexOf(id) !== -1) return _homeOk ? 'green' : 'red';
+    if (_dwBomb.indexOf(id) !== -1) return (_homeOk && (it.bomb >= 1 || it.bomb === true)) ? 'green' : 'red';
 
     // All other checks: find world
     var check = null;
@@ -2809,9 +2880,24 @@ window.checkColorWith = function(id, extra) {
   var fn = checkLogic(Object.assign({}, window.trackerItems || {}, extra))[id];
   return fn ? fn() : 'green';
 };
+// Door Shuffle: the Hyrule Castle dots are rooms of the castle, and with the
+// rooms shuffled they're no more knowable than any dungeon's — so they follow
+// HC's own door colour: red if the castle can't be reached, else yellow or green
+// (Chris, Oct 2026: Dark Cross and the Escape Sewers).
+var HC_ROOM_CHECKS = { 96: 1, 98: 1, 104: 1 };   // Escape Sewers, Hyrule Castle, Dark Cross
+(function () {
+  var _cc = window.checkColor;
+  window.checkColor = function (id) {
+    if (HC_ROOM_CHECKS[id] && window.doorShuffleMode && window.doorShuffleMode() === 'crossed') {
+      var hc = window.dungeonColor('hc');
+      return hc === 'purple' ? 'red' : hc;   // red, yellow, or green with the full kit
+    }
+    return _cc(id);
+  };
+})();
 })();
 </script>
-<script src="js/dngpanel.js?v=1127n"></script>
+<script src="js/dngpanel.js?v=1128a"></script>
 <script src="js/entrances_data.js"></script>
 <script src="logic/ref_logic_entrances.js"></script>
 <script src="logic/ref_logic_entrances_owg.js"></script>
@@ -2840,7 +2926,7 @@ window.checkColorWith = function(id, extra) {
   if (set) window.logic_entrances = set;
 })();
 </script>
-<script src="logic/ent_logic.js?v=1120a"></script>
+<script src="logic/ent_logic.js?v=1121b"></script>
 <script>
 'use strict';
 
@@ -3871,7 +3957,7 @@ window._applyInvertedDungeons(_inverted);
         // A label names the real dungeon; the card is keyed by marker, and in
         // inverted the CT and GT markers trade places — so a "CT" label showed
         // Ganon's Tower (Chris, Sep 2026). dngLogicalKey() is that swap.
-        window.showDungeonPanel(dngLogicalKey(dk), m, e.name + ' \u2192 ');
+        window.showDungeonPanel(dngLogicalKey(dk), m, e.name + ' \u2192 ', (window._entLabels || {})[e.name]);
         return;
       }
       // OnlyADKD: a door whose interior still holds an item shows that
@@ -4123,6 +4209,12 @@ window._applyInvertedDungeons(_inverted);
       // The labeled entrance itself is "found" once its connector group has
       // 2+ members placed anywhere on the map.
       if (code && groupFound[code] && found.indexOf(name) === -1) found.push(name);
+      // A start label is where you spawn: you're standing outside that door,
+      // same as a connector — e.g. Link on Skull Woods Second Section Door
+      // (West) puts you beside the Second Section Hole (Chris, Oct 2026).
+      var _start = code === 'Link' || code === 'Sanc' || code === 'Mount' ||
+        (code === 'Bomb' && (window.trackerSettings || {}).inverted2);
+      if (_start && found.indexOf(name) === -1) found.push(name);
     });
     window._entSyntheticFoundEntrances = found;
     refreshSyntheticRegions();
@@ -4268,6 +4360,7 @@ window._applyInvertedDungeons(_inverted);
     'Hyrule Castle Balcony':           'Inverted Hyrule Castle Balcony',
   };
   window._entEntranceRegion = ENT_ENTRANCE_REGION; // exposed for _debugUpperDDM
+  window._entOpenToInverted = OPEN_TO_INVERTED_REGION;   // for ent_logic's Inverted 2.0 home check
 
   function refreshSyntheticRegions() {
     var found = [];
@@ -4279,10 +4372,17 @@ window._applyInvertedDungeons(_inverted);
     // In OPEN (non-inverted) mode, these labels mean the player has super-bunny DW
     // access at that entrance location — the surrounding DW area IS reachable.
     var _passThroughLabels = { 'Link': true, 'Sanc': true, 'Mount': true };
+    if (window.trackerSettings && window.trackerSettings.inverted2) _passThroughLabels.Bomb = true;   // 2.0's start
     function addFor(name) {
-      if (isInverted && _passThroughLabels[entLabels && entLabels[name]]) return;
       var region = ENT_ENTRANCE_REGION[name];
       if (!region) return;
+      // Inverted: a start label is where you spawn, so its region is yours. In
+      // the Light World you're a bunny, but a bunny walks and goes through
+      // doors — Bomb on Paradox Cave (Bottom) opens Lower East DM (Chris, Oct
+      // 2026). Item gates in the rules (mitts, hammer...) still apply. Only
+      // the HC balcony stays out (the Sanc-on-Pyramid-Exit case above).
+      if (isInverted && _passThroughLabels[entLabels && entLabels[name]] &&
+          region === 'Hyrule Castle Balcony') return;
       // Passthrough label (Sanc/Link/Mount) on an entrance whose physical region is
       // "Hyrule Castle Balcony": granting HC Balcony would make HC W/E and Agahnim's
       // Tower show as available via canReach|Hyrule Castle Balcony checks. Instead,
@@ -4351,6 +4451,14 @@ window._applyInvertedDungeons(_inverted);
         found.indexOf('Dark Death Mountain Ledge') !== -1 &&
         found.indexOf('Lower East Death Mountain') === -1) {
       found.push('Lower East Death Mountain');
+    }
+    // The TR / Superbunny (Top) ledge walks onto Upper Dark DM — Superbunny Cave
+    // (Top), Hookshot Cave, GT — and the drops below (Chris, Oct 2026; same rule
+    // canReachUpperDarkDeathMountain() uses for a connector there).
+    if (found.indexOf('Isolated East Dark Death Mountain Ledge') !== -1 &&
+        found.indexOf('Upper Dark Death Mountain') === -1) {
+      found.push('Upper Dark Death Mountain');
+      if (isInverted && found.indexOf('Inverted Dark Death Mountain') === -1) found.push('Inverted Dark Death Mountain');
     }
     if (found.indexOf('Upper Dark Death Mountain') !== -1 && found.indexOf('Lower East Dark Death Mountain') === -1) {
       found.push('Lower East Dark Death Mountain');
@@ -4855,6 +4963,7 @@ window._applyInvertedDungeons(_inverted);
     // Enclosed LW entrances that a bunny can't freely access — require items in inverted
     var _kakEnclosed = {
       'Bush Covered House':             function() { return _pearl; },
+      'Potion Shop':                    function() { return _pearl; },   // bushes too
       'Kings Grave':                    function() { return _pearl && _mitts; },
       'Desert Palace Entrance (North)': function() { return _pearl && _glove; },
       'Desert Palace Entrance (East)':  function() { return false; },
@@ -4875,9 +4984,8 @@ window._applyInvertedDungeons(_inverted);
     var lnames = Object.keys(labels);
     for (var j = 0; j < lnames.length; j++) {
       if (_lwOk(lnames[j])) return true;
-      // Label text identifies a LW pass-through building (Sanc/Link/Mount) on any entrance
-      var _lv = (labels[lnames[j]] || '').toLowerCase().trim();
-      if (_lv.indexOf('sanc') === 0 || _lv.indexOf('link') === 0 || _lv.indexOf('mount') === 0) return true;
+      // A start label (Sanc/Link/Mount) counts only by where it sits, like any
+      // label — it no longer opens the Light World from anywhere (Chris, Oct 2026).
     }
     return false;
   }
@@ -4916,9 +5024,40 @@ window._applyInvertedDungeons(_inverted);
     // Same as the non-entrance-shuffle Waterfall Fairy check (105).
     'Waterfall of Wishing': function (t) { return !!(t.boots || t.moonpearl); }
   };
+  function towerDoorShut(name) {
+    var st = window.trackerSettings || {}, t = window.trackerItems || {};
+    if (!st.inverted || !st.entranceShuffle) return false;
+    if (name === 'Agahnims Tower') return !(t.sword >= 2 || t.cape);
+    if (name !== 'Ganons Tower') return false;
+    var req = (t.gtCrystals !== undefined && t.gtCrystals !== null) ? parseInt(t.gtCrystals, 10) : window.gtCrystalReq();
+    return (t.crystals || 0) < req;
+  }
   function entranceOutOfLogic(name) {
+    if (bombJumpEast(name)) return true;
     if (!ENT_OOL[name] || (window.trackerSettings && window.trackerSettings.inverted)) return false;
     return ENT_OOL[name](window.trackerItems || {});
+  }
+  // Kern (bomb) jump into the PoD area: bombs plus a foot in the West or South
+  // Dark World reach the East Dark World out of logic — every world state (the
+  // pearl in open, to use the bombs). The non-shuffle map has had this since
+  // v1.1.19 (dwEastByBomb); entrance shuffle never did (Chris, Oct 2026).
+  // The entrance's own rule is re-asked with East DW granted, so its other
+  // gates (Pyramid Fairy's crystals...) still count.
+  function bombJumpEast(name) {
+    var t = window.trackerItems || {};
+    var inv = !!(window.trackerSettings || {}).inverted;
+    var reg = ENT_ENTRANCE_REGION[name];
+    // North East DW (the Dark Potion Shop) is a glove's lift on from the PoD
+    // area — the Catfish rule (Chris, Oct 2026).
+    if (reg === 'North East Dark World' && !(t.gloves >= 1)) return false;
+    if ((reg !== 'East Dark World' && reg !== 'North East Dark World') || !t.bomb || (!inv && !t.moonpearl)) return false;
+    var dw = inv ? ['Inverted West Dark World', 'Inverted South Dark World'] : ['West Dark World', 'South Dark World'];
+    var its = buildEntLogicItems();
+    if (!dw.some(function (r) { return window.EntLogic.canReachRegion(r, its); })) return false;
+    var f = window._entSyntheticFoundRegions || [];
+    window._entSyntheticFoundRegions = f.concat(['East Dark World', 'Inverted East Dark World',
+      'North East Dark World', 'Inverted North East Dark World']);
+    try { return !entranceUnavailable(name); } finally { window._entSyntheticFoundRegions = f; }
   }
   window.entranceOutOfLogic = entranceOutOfLogic;
 
@@ -5065,6 +5204,9 @@ window._applyInvertedDungeons(_inverted);
       var gtReq = (gtItems.gtCrystals !== undefined && gtItems.gtCrystals !== null)
                     ? parseInt(gtItems.gtCrystals, 10) : window.gtCrystalReq();
       if ((gtItems.crystals || 0) >= gtReq) return false;
+      // Inverted (1.0 and 2.0): the door at the top of Dark DM keeps its
+      // crystal barrier whatever is shuffled behind it (Chris, Oct 2026).
+      if (window.trackerSettings.inverted) return true;
     }
 
     // "Pyramid Hole" (inverted): defeating Aga2 opens the hole. If GT is
@@ -5327,6 +5469,11 @@ window._applyInvertedDungeons(_inverted);
       color = bumpIt.cape ? DUNGEON_COLOR_HEX.green : DUNGEON_COLOR_HEX.red;
     }
 
+    // Inverted, entrances shuffled: each tower door keeps its own barrier
+    // whatever is labelled on it (GT, CT, anything) — crystals at Ganons
+    // Tower, the Master Sword or Cape at Agahnims Tower (Chris, Oct 2026).
+    if (code && towerDoorShut(name)) color = DUNGEON_COLOR_HEX.red;
+
     if (hasNote && !marker.classList.contains('cleared')) {
       if (marker.classList.contains('connector')) {
         color = ENT_NOTE_COLOR_CONNECTOR;
@@ -5475,6 +5622,29 @@ window._applyInvertedDungeons(_inverted);
             marker.style.background = DUNGEON_COLOR_HEX.yellow;
           }
         }
+      }
+    }
+
+    // A door into one section of a dungeon (DP M/W/E: Desert's front) is
+    // coloured by that section's checks alone, with the same quarter fill the
+    // dungeon squares use — always shown, whatever the key mode (Chris, Oct
+    // 2026). Green: all of it in logic; quarters: that share of it; yellow:
+    // only possible; then out of logic, visible, red. Grey once it's all done.
+    var secKey = code && (window._entLabelToDungeon || {})[code];
+    var sec = secKey && window.dngSection ? window.dngSection(secKey, code) : null;
+    if (sec && sec !== 'back' && window.dungeonCounts && !hasNote &&
+        marker.classList.contains('ent-marked') && !marker.classList.contains('cleared')) {
+      var sc = window.dungeonCounts(secKey, true, false, sec);
+      var sColor = !sc ? 'rgba(70,70,70,0.85)'
+        : sc.obtainable === sc.left ? DUNGEON_COLOR_HEX.green
+        : sc.gettable ? DUNGEON_COLOR_HEX.yellow
+        : sc.byCls.ool ? DUNGEON_COLOR_HEX.purple
+        : sc.byCls.visible ? DUNGEON_COLOR_HEX.orange
+        : DUNGEON_COLOR_HEX.red;
+      marker.style.background = sColor;
+      if (sc && sc.obtainable && sc.obtainable < sc.left) {
+        var sq = Math.max(1, Math.min(3, Math.floor(sc.obtainable / sc.left * 4)));
+        marker.classList.add('q' + sq);
       }
     }
   }
@@ -5863,7 +6033,7 @@ window._applyInvertedDungeons(_inverted);
       btn.style.color = (pair[1] === 'Dark') ? '#fff' : '#111';
       btn.addEventListener('click', function() {
         if (!activeName) return;
-        entLabels[activeName] = pair[1];
+        entLabels[activeName] = btn.textContent;   // not pair[1]: the Link button reads Bomb in 2.0
         saveLabels();
         renderLabel(activeName);
         refreshSyntheticConnections();
@@ -5890,6 +6060,9 @@ window._applyInvertedDungeons(_inverted);
 
   // Highlight grid buttons whose code is currently assigned to any entrance.
   function refreshKeyLocationMarks() {
+    // Inverted 2.0 starts you in the Big Bomb Shop, not Link's House (Chris, Oct 2026).
+    var _linkBtn = popupCols.querySelector('.ent-popup-btn[data-code="LINK"]');
+    if (_linkBtn) _linkBtn.textContent = (window.trackerSettings || {}).inverted2 ? 'Bomb' : 'Link';
     var usedCodes = {};
     Object.keys(entLabels).forEach(function(name) {
       usedCodes[entLabels[name]] = true;
@@ -6486,7 +6659,6 @@ window.refreshMapLogic = function() {
   // Inverted mode: force DW village checks green regardless of checkLogic
   if (window.trackerSettings && window.trackerSettings.inverted) {
     var it = window.trackerItems || {};
-    var hasBomb = it.bomb >= 1 || it.bomb === true;
     // Dark World checks that are free from the start in your home world. Link's
     // House (2) is one of them in 1.0 only — Inverted 2.0 leaves it in the
     // Light World, where it costs Light World access like anything else there.
@@ -6511,11 +6683,11 @@ window.refreshMapLogic = function() {
     // The bunny walk counts here too — this line runs after dotClass, so leaving
     // it out painted the dot red over its own card (Chris, Sep 2026).
     if (dotById[65] && !checkState[65]) dotById[65].className = (lwOk || superBunnyOk || _kakOk65 || window.bunnyLW()) ? 'dot available' : 'dot unavail';
-    _free.forEach(function(id) {
-      if (dotById[id] && !checkState[id]) dotById[id].className = 'dot available';
-    });
-    _bomb.forEach(function(id) {
-      if (dotById[id] && !checkState[id]) dotById[id].className = hasBomb ? 'dot available' : 'dot unavail';
+    // These ask checkColor rather than repeating its answer: in Inverted 2.0
+    // entrance shuffle it waits for the check's own area to be reachable, and
+    // painting them green here overruled that (Chris, Oct 2026).
+    _free.concat(_bomb).forEach(function(id) {
+      if (dotById[id] && !checkState[id]) dotById[id].className = window.checkColor(id) === 'green' ? 'dot available' : 'dot unavail';
     });
     // LW dungeons (ep,dp,hc) require village portal access in inverted
     // Note: after dngEls swap, dngEls['gt'] = Aga1 (DW), dngEls['ct'] = Ganon (LW)
@@ -9034,6 +9206,19 @@ if (document.readyState === 'loading') {
          : window.trackerSettings.enemyKeyDrop === 'yes' ? 'keys' : 'none');
     el.addEventListener('change', applyDropModes);
   });
+
+  // ── Door Shuffle ── same setting as the launcher's Other Settings; the item
+  // tracker is told so its counts switch over too.
+  var doorSel = document.getElementById('set-doorshuffle');
+  if (doorSel) {
+    doorSel.value = window.doorShuffleMode ? window.doorShuffleMode() : 'none';
+    doorSel.addEventListener('change', function() {
+      window.trackerSettings.doorShuffle = doorSel.value;
+      lsSet('alttp-door-shuffle', doorSel.value);
+      try { if (window._bc) window._bc.postMessage({ type: 'setting', key: 'alttp-door-shuffle', value: doorSel.value }); } catch (e) {}
+      if (typeof window.refreshMapLogic === 'function') window.refreshMapLogic();
+    });
+  }
 
   var gtSel = document.getElementById('set-gtcrystals');
   if (gtSel) {

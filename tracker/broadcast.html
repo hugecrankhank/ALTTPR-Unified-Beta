@@ -325,11 +325,6 @@ html[data-bg="transparent"] .bbg-bar * {
   text-align: center;
   width: 100%;
 }
-.bdng-name.here::after {
-  content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 3px;
-  border-radius: 50%; background: #4dff88; box-shadow: 0 0 4px #4dff88;
-  vertical-align: middle;
-}
 
 /* All icon/value rows are centered horizontally */
 .bdng-top,
@@ -1229,19 +1224,7 @@ function updateMedallions() {
   });
 }
 
-// You-are-here dot beside the dungeon name — the dungeon Link is in right now,
-// from the item tracker's read of $7E040C (Chris, Oct 2026). Kept outside the
-// per-dungeon cache and re-applied each time, so a rebuilt layout keeps it.
-var _currentDungeon = null;
-function applyCurrentDungeon() {
-  Object.keys(dngEls).forEach(function (k) {
-    dngEls[k].name.classList.toggle('here', SETTINGS.hereDot && !RACE_MODE && k === _currentDungeon);
-  });
-}
-
 function applySnap(snap) {
-  if (snap.currentDungeon !== undefined) _currentDungeon = snap.currentDungeon;
-  applyCurrentDungeon();
   // Keep a running merge of everything we've ever been sent, so a settings
   // change can re-render the current state without waiting for the next poll.
   // Done here rather than in the coalescer so every entry point populates it.
@@ -2112,7 +2095,6 @@ try {
       if (_snapData && typeof _snapData.raceMode === 'boolean' && _snapData.raceMode !== RACE_MODE) {
         RACE_MODE = _snapData.raceMode;
         updateRaceModeUI();
-        applyCurrentDungeon();
       }
       applySnapCoalesced(_snapData);
     }
@@ -2145,7 +2127,6 @@ function applyAllSettings() {
     applyFillVariable();
     applyDungeonColors();
     applyDungeonBox();
-    applyCurrentDungeon();
     applyDungeonVisibility();
     refreshAllFills();
     if (SETTINGS.viewStyle !== prevViewStyle) rebuildRows();

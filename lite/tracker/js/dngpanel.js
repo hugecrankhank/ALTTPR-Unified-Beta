@@ -26,7 +26,20 @@
 
 // Bumped with every change to this file. The map's gear menu shows it, so a
 // stale packaged build can be spotted without guessing (Chris, Sep 2026).
-window.DNGPANEL_BUILD = '1127n';
+window.DNGPANEL_BUILD = '1128a';
+
+// Door Shuffle (launcher → Other Settings): 'none', 'basic' or 'crossed'.
+// Basic shuffles the rooms inside each dungeon; Crossed mixes rooms between
+// dungeons. Either way a chest's location in the dungeon no longer says what
+// it takes to reach it, so per-chest logic is switched off (Chris, Oct 2026).
+window.doorShuffleMode = function () {
+  var v = (window.trackerSettings || {}).doorShuffle;
+  if (!v) { try { v = localStorage.getItem('alttp-door-shuffle'); } catch (e) {} }
+  return (v === 'basic' || v === 'crossed') ? v : 'none';
+};
+// Per-chest logic is off under Crossed only; Basic keeps the normal rules
+// (rooms stay in their own dungeon) — Chris, Oct 2026.
+function doorsOn() { return window.doorShuffleMode() === 'crossed'; }
 
 var DNG_PANEL_CSS = `
 /* ── Dungeon hover panel ── */
@@ -877,6 +890,18 @@ function gtKD(inner, poss, avail) {
   };
 }
 function gtFree()   { return 'available'; }
+// Like gtKD, but with key thresholds in plain keysanity too (Chris, Oct 2026):
+// `ks*` for keysanity (GT has 4 keys), `kd*` for key drop (8). Where keys
+// aren't shuffled they're free (ruleContext gives 99), so this passes.
+function gtKeyed(inner, kdPoss, kdAvail, ksPoss, ksAvail) {
+  return function (c) {
+    var base = inner(c);
+    if (base !== 'available') return base;
+    var poss = c.keydrop ? kdPoss : ksPoss, avail = c.keydrop ? kdAvail : ksAvail;
+    if (c.keys >= avail) return 'available';
+    return c.keys >= poss ? 'possible' : 'unavail';
+  };
+}
 
 // HC's key thresholds are Key Drop shuffle's — vanilla HC has a single key,
 // so without key drop only the one-key doors are enforced.
@@ -958,13 +983,6 @@ function ipKeys(c, need) {
   return c.keys >= need ? 'available' : 'unavail';
 }
 
-// TR's back half under Key Drop: five keys and the big key does it outright;
-// three keys plus the boss item is the possible reading.
-function trDeep(c) {
-  if (!c.bigkey) return 'unavail';
-  if (c.keys >= 5) return 'available';
-  return (c.keys >= 3 && c.bossOk !== false) ? 'possible' : 'unavail';
-}
 // The Eye Bridge sits past the Crystaroller Room's key door; the only key door
 // after it is the pair before the boss. So one key short of TR's total still
 // reaches the bridge for certain — only the boss needs the last one (Chris,
@@ -1290,11 +1308,10 @@ var LOC_RULES = {
       // The curtain in front of Mothula is cut with a sword, in every mode but
       // swordless (Chris, Sep 2026).
       if (!c.swordless && !c.item('sword')) return 'unavail';
-      // The keys between the entrance and Mothula come off a pot and an enemy,
-      // so outside Key Drop shuffle they are always there and no count gates
-      // the boss (Chris, Sep 2026). Key drop shuffles them into the pool: two
-      // keys read possible, four available (Chris, Oct 2026).
-      var st = c.keydrop ? podKeyed(c, 4, 2) : 'available';
+      // Keys are assumed spent the worst way, so green wants every key: 3 in
+      // keysanity (possible from 1), 5 under key drop (possible from 2) (Chris,
+      // Oct 2026). Unshuffled keys are free (ruleContext gives 99).
+      var st = c.keydrop ? podKeyed(c, 5, 2) : podKeyed(c, 3, 1);
       if (st === 'unavail') return st;
       if (c.bossOk === false) return 'bossitem';
       return st;
@@ -1322,12 +1339,14 @@ var LOC_RULES = {
     'Big Chest':     function (c) {
       // The hammer smashes the floor above it — no way in without one, in any
       // mode.
-      // One small key, the big key and the hammer — key drop or not (Chris,
-      // Oct 2026; it wanted three keys under key drop). With keys unshuffled
-      // the count is normally taken as met, but TT's one key sits in a chest
-      // you have to open first, so here it must actually be picked up.
+      if (!c.bigkey || !c.item('hammer')) return 'unavail';
+      // Key Drop: two keys possible, three available (Chris, Oct 2026).
+      if (c.keydrop) return ttTier(c, 3, 2);
+      // Vanilla: one small key. With keys unshuffled the count is normally
+      // taken as met, but TT's one key sits in a chest you have to open first,
+      // so here it must actually be picked up.
       var k = c.keysFree ? c.held : c.keys;
-      return (c.bigkey && c.item('hammer') && k >= 1) ? 'available' : 'unavail';
+      return k >= 1 ? 'available' : 'unavail';
     },
     'Boss':          function (c) {
       if (!c.bigkey) return 'unavail';
@@ -1442,7 +1461,7 @@ var LOC_RULES = {
   tr: {
     // Vanilla TR has four keys; Key Drop shuffle raises it to six and moves
     // every threshold, so each rule keeps its old answer and adds a key-drop
-    // branch. trDeep() is the shared back-half tier.
+    // branch.
     'Compass Chest':               function () { return 'available'; },
     'Roller Room - Left':          function (c) { return c.item('firerod') ? 'available' : 'unavail'; },
     'Roller Room - Right':         function (c) { return c.item('firerod') ? 'available' : 'unavail'; },
@@ -1451,8 +1470,7 @@ var LOC_RULES = {
       return c.keys >= (c.keydrop ? 2 : 1) ? 'available' : 'unavail';
     },
     'Pokey 2 Key Drop':            function (c) {
-      if (c.keys >= 5) return 'available';
-      return c.keys >= 3 ? 'possible' : 'unavail';
+      return c.keys >= 3 ? 'available' : 'unavail';   // Chris, Oct 2026
     },
     // The lava chest. Two keys physically reaches it, but spending them here is
     // a choice most players don't make — the chest is commonly skipped, so
@@ -1467,12 +1485,13 @@ var LOC_RULES = {
       if (c.keys >= 6) return 'available';
       return c.keys >= 4 ? 'possible' : 'unavail';
     },
+    // Key drop: big key + three keys (Chris, Oct 2026).
     'Big Chest':                   function (c) {
-      if (c.keydrop) return trDeep(c);
+      if (c.keydrop) return (c.bigkey && c.keys >= 3) ? 'available' : 'unavail';
       return (c.bigkey && c.keys >= 2) ? 'available' : 'unavail';
     },
     'Crystaroller Room':           function (c) {
-      if (c.keydrop) return trDeep(c);
+      if (c.keydrop) return (c.bigkey && c.keys >= 3) ? 'available' : 'unavail';
       return (c.bigkey && c.keys >= 2) ? 'available' : 'unavail';
     },
     // Two keys reaches the bridge, three makes it certain (three/five under key drop).
@@ -1527,10 +1546,12 @@ var LOC_RULES = {
     'Mini Helmasaur Room - Left':     gtKD(gtClimb, 0, 6),
     'Mini Helmasaur Room - Right':    gtKD(gtClimb, 0, 6),
     'Mini Helmasaur Key Drop':        gtKD(gtClimb, 0, 6),
-    'Pre-Moldorm Chest':              gtKD(gtClimb, 1, 7),
-    'Validation Chest':               gtKD(function (c) {
+    // Possible from one key; available one short of all of them (Chris, Oct 2026).
+    'Pre-Moldorm Chest':              gtKeyed(gtClimb, 1, 7, 1, 3),
+    // Possible from two keys; available only with every key.
+    'Validation Chest':               gtKeyed(function (c) {
       return (gtClimb(c) === 'available' && c.item('hookshot')) ? 'available' : 'unavail';
-    }, 2, 8)
+    }, 2, 8, 2, 4)
   }
 };
 
@@ -1880,7 +1901,36 @@ function prizeRow(key, word, cls) {
   return row('Prize', word || '&nbsp;', cls || '');
 }
 
-function buildDungeonPanelHTML(key, titlePrefix) {
+// One dungeon, several doors: an entrance labelled for a section of it shows
+// only that section's lines, and its marker that section's colour and quarter
+// fill (Chris, Oct 2026). A card opened any other way (the dungeon square, the
+// item tracker) shows everything.
+//   Desert: "DP" (north door) -> the back: tile rooms, Beamos Hall, Lanmolas.
+//           DP M/W/E -> the front.
+//   Skull Woods: "SW" (Final Section) -> Bridge Room, Spike Corner, Mothula.
+//           SW E/W (Second Section) -> Big Key Chest and West Lobby Pot Key.
+//           SW M -> the rest.
+// Anything not listed under `locs` / `rooms` is in 'front'. `enemies`: the card
+// that carries the Enemies row - it comes from the cartridge's dungeon-wide
+// totals and can't be split by room.
+var DNG_SECTIONS = {
+  dp: { byCode: { 'DP': 'back', 'DP M': 'front', 'DP W': 'front', 'DP E': 'front' },
+        locs:   { 'Boss': 'back', 'Desert Tiles 1 Pot Key': 'back', 'Beamos Hall Pot Key': 'back',
+                  'Desert Tiles 2 Pot Key': 'back' },
+        rooms:  { 67: 'back', 83: 'back', 99: 'back' },   // Desert Tiles 2, Beamos Hall, Desert Tiles 1
+        enemies: 'front' },
+  sw: { byCode: { 'SW': 'back', 'SW M': 'front', 'SW E': 'mid', 'SW W': 'mid' },
+        locs:   { 'Bridge Room': 'back', 'Spike Corner Key Drop': 'back', 'Boss': 'back',
+                  'Big Key Chest': 'mid', 'West Lobby Pot Key': 'mid' },
+        rooms:  { 89: 'back', 73: 'back', 57: 'back',     // Skull 3 Lobby, Vines, Final Drop
+                  86: 'mid', 87: 'mid' },                  // Skull X Room (West Lobby), Big Key
+        enemies: 'back' }
+};
+function dngSection(dk, code) { return ((DNG_SECTIONS[dk] || {}).byCode || {})[code] || null; }
+window.dngSection = dngSection;
+function inSection(dk, sec, set, name) { return !sec || (DNG_SECTIONS[dk][set][name] || 'front') === sec; }
+
+function buildDungeonPanelHTML(key, titlePrefix, code) {
   var diMode = dungeonItemsMode();
   // See ruleContext: in inverted the card for GT is built under the key 'ct'.
   // Anything that is DATA about the dungeon goes through locationKey().
@@ -1907,7 +1957,7 @@ function buildDungeonPanelHTML(key, titlePrefix) {
   if (maxChests !== undefined) {
     chests = chests || 0;
     html += row('Items', chests + '/' + maxChests,
-                (maxChests > 0 && chests >= maxChests) ? 'available' : '');
+                (typeof maxChests === 'number' && maxChests > 0 && chests >= maxChests) ? 'available' : '');
   }
 
   // Small keys. CT reports a count with no max.
@@ -1920,7 +1970,9 @@ function buildDungeonPanelHTML(key, titlePrefix) {
   var found = (c.keysFound !== undefined) ? c.keysFound : it[dk + 'SmallKeysMax'];
   if (found === undefined || found < keys) found = keys;
   if (diMode !== 'other') {
-    if (maxKeys > 0) {
+    if (maxKeys === '?') {
+      html += row('Small Keys', (found || 0) + '/?', '');   // Crossed: not seen yet
+    } else if (maxKeys > 0) {
       html += row('Small Keys', (found || 0) + '/' + maxKeys,
                   (found || 0) >= maxKeys ? 'available' : '');
     } else if (key === 'ct' && found) {
@@ -1946,8 +1998,13 @@ function buildDungeonPanelHTML(key, titlePrefix) {
   // Location list. A line with a known SRAM flag reports its own cleared state;
   // the rest carry the dungeon's status until per-location logic exists.
   var locKey = dk;
-  var locs   = locsFor(locKey);
+  var sec    = dngSection(locKey, code);
+  var locs   = locsFor(locKey).filter(function (n) { return inSection(locKey, sec, 'locs', n); });
   var showLocs = hostCall('locations', key);
+  if (window.doorShuffleMode() !== 'none') {
+    html += row('Door Shuffle', window.doorShuffleMode() === 'crossed' ? 'Crossed' : 'Basic', '');
+    if (doorsOn()) showLocs = false;
+  }
   if (locs && locs.length && showLocs !== false) {
     var st2      = hostCall('status', key) || {};
     // A finished dungeon does NOT mark its lines cleared: only a location whose
@@ -1999,9 +2056,9 @@ function buildDungeonPanelHTML(key, titlePrefix) {
               '</span><span class="dp-val ' + cls + '">' + (word || '&nbsp;') + '</span></div>';
     });
     // Under the Boss line, which ends the list, and carrying its answer.
-    body += prizeRow(locationKey(key), bossWord, bossCls);
+    if (!sec || sec === 'back') body += prizeRow(locationKey(key), bossWord, bossCls);
     // Pots and enemy drops, a room at a time.
-    dropRollup(locKey).forEach(function (r) {
+    dropRollup(locKey, sec).forEach(function (r) {
       // Everything taken → cleared; everything left needing an item you don't
       // have → unavailable; some of it blocked → possible; otherwise the
       // dungeon's own status carries.
@@ -2029,12 +2086,14 @@ function buildDungeonPanelHTML(key, titlePrefix) {
 // actually get: { total, left, obtainable }. null when the dungeon-item mode
 // doesn't track chests (unless `force`), or nothing is left. The Boss line is
 // counted like any other location; key drops count when their mode is on.
-window.dungeonCounts = function (key, force, allKeys) {
+window.dungeonCounts = function (key, force, allKeys, sec) {
   // Chest tracking, so the quadrants, exist wherever the keys or the big key
   // are shuffled — which is what "keysanity or MCK" used to mean.
   if (!force && !(window.shuffleSmallKeys() || window.shuffleBigKey())) return null;
+  if (doorsOn()) return null;   // no per-chest logic to count with
   var locKey = locationKey(key);
-  var locs   = locsFor(locKey);
+  // `sec`: one section of the dungeon only (see DNG_SECTION_BY_CODE).
+  var locs   = locsFor(locKey).filter(function (n) { return inSection(locKey, sec || null, 'locs', n); });
   if (!locs.length) return null;
 
   var base      = (hostCall('status', key) || {}).cls || '';
@@ -2077,7 +2136,8 @@ window.dungeonCounts = function (key, force, allKeys) {
               : ((window.trackerItems || {})[locKey + 'Skipped'] || 0);
   // Named skips are already out of the loop above; only skips made by clicking
   // the item count (which say a number, not a location) still come off here.
-  var extra = Math.max(0, skipped - dngSkipCount(locKey));
+  // (A section can't tell whose those were, so it leaves them alone.)
+  var extra = sec ? 0 : Math.max(0, skipped - dngSkipCount(locKey));
   if (extra) {
     left = Math.max(0, left - extra);
     obtainable = Math.min(obtainable, left);
@@ -2123,7 +2183,7 @@ window.dungeonLocClass = function (key, loc) {
   // into the marker whose colour the host is holding (Chris, Sep 2026).
   var base  = (hostCall('status', locationKey(key)) || {}).cls || '';
   var rule  = (LOC_RULES[locKey] || {})[loc];
-  if (!rule) return base;
+  if (!rule || doorsOn()) return base;
   var res = rule(ruleContext(key, base));
   if (res === 'bossitem') res = 'unavail';
   if (!res) return base;
@@ -2217,7 +2277,7 @@ function enemyDropsOn() {
 }
 
 // [{ label, done, total }] for one dungeon, or [] when neither mode is on.
-function dropRollup(key) {
+function dropRollup(key, sec) {
   if (!window.POT_LOCATIONS) return [];
   var wantPots  = !!POTTERY_DUNGEON_MODES[potteryModeName()];
   var wantDrops = enemyDropsOn();
@@ -2229,6 +2289,7 @@ function dropRollup(key) {
   // reports these as a total, so we do too.
   var pots  = { label: 'Pots',    done: 0, total: 0, blocked: 0 };
   var drops = { label: 'Enemies', done: 0, total: 0, blocked: 0 };
+  var secPots = { label: 'Pots', done: 0, total: 0, blocked: 0 };   // this card's rooms only
   // Standard start walks the whole escape, so Hyrule Castle's pots are all in
   // hand there whatever the item requirement says. Open and Inverted drop you
   // outside and the requirements apply as usual.
@@ -2243,7 +2304,10 @@ function dropRollup(key) {
     var e = window.POT_LOCATIONS[r];
     if (e.dng !== key) return;
     if (POT_ROOMS_MAP_ONLY[e.name]) return;
-    if (wantPots  && e.pots)  e.pots.forEach(function (p) { tally(p, pots); });
+    if (wantPots  && e.pots)  e.pots.forEach(function (p) {
+      tally(p, pots);
+      if (sec && inSection(key, sec, 'rooms', r)) tally(p, secPots);
+    });
     if (wantDrops && e.drops) e.drops.forEach(function (p) { tally(p, drops); });
   });
   // ── the enemy row, from the cartridge rather than from our masks ──
@@ -2265,6 +2329,13 @@ function dropRollup(key) {
     drops.blocked = 0;
   }
   var rows = [];
+  // A section card: its own rooms' pots, and the Enemies row on whichever
+  // card DNG_SECTIONS names.
+  if (sec) {
+    if (secPots.total) rows.push(secPots);
+    if (sec === DNG_SECTIONS[key].enemies && drops.total) rows.push(drops);
+    return rows;
+  }
   if (pots.total)  rows.push(pots);
   if (drops.total) rows.push(drops);
   return rows;
@@ -2377,12 +2448,12 @@ function position() {
   panelEl.style.top  = Math.round(y) + 'px';
 }
 
-function show(key, el, titlePrefix) {
+function show(key, el, titlePrefix, code) {
   ensurePanel();
   clearTimeout(_hideTimer);          // a fresh hover, not a poll repaint
   activeKey = key;
   anchorEl  = el;
-  activeRender = function () { return buildDungeonPanelHTML(key, titlePrefix); };
+  activeRender = function () { return buildDungeonPanelHTML(key, titlePrefix, code); };
   render();
 }
 

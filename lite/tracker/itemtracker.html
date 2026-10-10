@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <title>ALTTP Item Tracker</title>
 <meta http-equiv="Content-Security-Policy" content="connect-src * ws://*:*;">
-<link rel="stylesheet" href="items.css?v=1120b">
+<link rel="stylesheet" href="items.css?v=1120d">
 </head>
 <body>
 
@@ -111,7 +111,6 @@
         </div>
         <div class="its-row" style="margin-top:6px;">
           <label><input type="checkbox" id="item-opt-dungeon-chests"> Show Dungeon Chests</label>
-          <label id="item-opt-here-dot-lbl"><input type="checkbox" id="item-opt-here-dot"> You Are Here Dot</label>
         </div>
         <div class="its-sub-label">All Chests Collected</div>
         <div class="its-radios">
@@ -152,7 +151,7 @@
   </div>
 </div>
 
-<script src="js/dngpanel.js?v=1127n"></script>
+<script src="js/dngpanel.js?v=1128a"></script>
 <script>
 // The pot / enemy-drop table is only read by the dungeon card's rollup, and
 // only in the two shuffle modes that use it — fetch it on demand rather than
@@ -179,7 +178,7 @@ window.ensurePotLocations = function() {
   });
 })();
 </script>
-<script src="js/items.js?v=1126r"></script>
+<script src="js/items.js?v=1126z"></script>
 <script>
 // ── Dungeon hover panel (js/dngpanel.js, shared with the map) ─────────────────
 // The item tracker knows the real dungeon state — counts, map/compass/big key,
@@ -240,7 +239,7 @@ window.DngPanelHost = {
     var effMax = Math.max(0, (d.maxItems || 0) - (d.skipped || 0));
     var c = {
       items:    Math.min(d.itemCount || 0, effMax),
-      maxItems: effMax,
+      maxItems: d.totalUnknown ? '?' : effMax,   // Door Shuffle Crossed, not seen yet
       // Chests the player waved off (left-click while autotracking). They never
       // set a flag, so the card has to be told or they'd sit "left" forever.
       skipped:  d.skipped || 0,
@@ -248,7 +247,7 @@ window.DngPanelHost = {
       // logic and the card both answer to.
       keys:     d.smallKeyCount || 0,
       keysFound: Math.max(d.smallKeyCount || 0, d.smallKeyMax || 0),
-      maxKeys:  d.maxSmallKeys  || 0,
+      maxKeys:  d.keysUnknown ? '?' : (d.maxSmallKeys || 0),
       bigkey:   d.bigkeyState   || 0
     };
     // A dungeon without a map or compass slot leaves the field out entirely, so
@@ -371,6 +370,8 @@ try {
         window.applyPotsBonesChange(_v);
       } else if (_k === 'alttp-random-prize' && typeof window.applyRandomPrizeChange === 'function') {
         window.applyRandomPrizeChange(_v);
+      } else if (_k === 'alttp-door-shuffle' && typeof window.applyDoorShuffleChange === 'function') {
+        window.applyDoorShuffleChange(_v);
       }
       return;
     }
@@ -607,7 +608,6 @@ var ITEM_SETTINGS = {
   dungeonBoxEnabled:  true,   // dark slot container shown when true
   showBoss:           true,   // false = hide all boss circles (vanilla bosses)
   dungeonChests:      false,  // hover card's per-chest list; off by default
-  hereDot:            false,  // you-are-here dot on the dungeon label; off by default, never in Race Mode
   defaultPrize:  'crystal',   // crystal | unknown — starting dungeon prize
   checksColor:   'white',     // white | black | grey | custom (CHECKS number)
   checksCustom:  '#ffffff'
@@ -641,7 +641,6 @@ function loadItemSettings() {
     ITEM_SETTINGS.dungeonFillEnabled = localStorage.getItem('alttp-itemtracker-dungeon-fill') !== 'false';
     ITEM_SETTINGS.dungeonBoxEnabled  = localStorage.getItem('alttp-itemtracker-dungeon-box')  !== 'false';
     ITEM_SETTINGS.dungeonChests      = localStorage.getItem('alttp-itemtracker-dungeon-chests') === 'true';
-    ITEM_SETTINGS.hereDot            = localStorage.getItem('alttp-itemtracker-here-dot') === 'true';
     // Show Boss: on unless the user turned it off here. It is deliberately NOT
     // tied to the bossshuffle URL param any more — with boss shuffle off the
     // circles still show the vanilla bosses, which is worth seeing, and the
@@ -682,7 +681,6 @@ function saveItemSettings() {
     localStorage.setItem('alttp-itemtracker-dungeon-box',    ITEM_SETTINGS.dungeonBoxEnabled  ? 'true' : 'false');
     localStorage.setItem('alttp-itemtracker-show-boss',      ITEM_SETTINGS.showBoss            ? 'true' : 'false');
     localStorage.setItem('alttp-itemtracker-dungeon-chests', ITEM_SETTINGS.dungeonChests     ? 'true' : 'false');
-    localStorage.setItem('alttp-itemtracker-here-dot',       ITEM_SETTINGS.hereDot           ? 'true' : 'false');
   } catch (e) {}
 }
 
@@ -693,12 +691,6 @@ function applyShowBoss() {
   // setting and only locks the circles (pointer-events: none), so toggling it
   // here left the circles on screen and the checkbox looked dead.
   document.documentElement.classList.toggle('hide-boss', !ITEM_SETTINGS.showBoss);
-}
-
-// You-are-here dot: a setting, off by default, and never shown in Race Mode.
-// items.js still tags the slot (.dng-here); this class decides if it shows.
-function applyHereDot() {
-  document.documentElement.classList.toggle('show-here-dot', ITEM_SETTINGS.hereDot && !window._raceMode);
 }
 
 function saveItemBgImage(dataUrl) {
@@ -843,10 +835,6 @@ function openItemSettings() {
   document.getElementById('item-opt-dungeon-box').checked  = ITEM_SETTINGS.dungeonBoxEnabled;
   document.getElementById('item-opt-show-boss').checked    = ITEM_SETTINGS.showBoss;
   document.getElementById('item-opt-dungeon-chests').checked = ITEM_SETTINGS.dungeonChests;
-  var _hd = document.getElementById('item-opt-here-dot');
-  _hd.checked  = ITEM_SETTINGS.hereDot && !window._raceMode;
-  _hd.disabled = !!window._raceMode;
-  document.getElementById('item-opt-here-dot-lbl').title = window._raceMode ? 'Disabled in Race Mode' : '';
   syncItemFillSub();
   updateItemBgImageStatus();
   document.getElementById('item-settings-overlay').classList.remove('hidden');
@@ -959,10 +947,6 @@ function wireItemSettingsHandlers() {
     ITEM_SETTINGS.showBoss = e.target.checked;
     saveItemSettings(); applyShowBoss();
   });
-  document.getElementById('item-opt-here-dot').addEventListener('change', function(e) {
-    ITEM_SETTINGS.hereDot = e.target.checked;
-    saveItemSettings(); applyHereDot();
-  });
   document.getElementById('item-opt-dungeon-chests').addEventListener('change', function(e) {
     ITEM_SETTINGS.dungeonChests = e.target.checked;
     saveItemSettings();
@@ -1026,7 +1010,6 @@ function initItemSettings() {
   applyItemBg(ITEM_SETTINGS.bg);
   applyItemDungeonBox();
   applyShowBoss();
-  applyHereDot();
   refreshItemFills();
   wireItemSettingsHandlers();
 }

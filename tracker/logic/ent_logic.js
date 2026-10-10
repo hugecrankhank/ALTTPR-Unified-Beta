@@ -20,7 +20,12 @@
   function canHitSwitch() { return items.bomb || melee_bow() || cane() || rod() || items.boomerang > 0 || items.hookshot; }
   function canHitRangedSwitch() { return items.bomb || items.bow > 0 || items.boomerang > 0 || items.somaria || rod(); }
   function activeFlute() { return items.flute > 1 || (items.flute > 0 && canReachLightWorld()); }
-  function activeFluteInverted() { return items.flute > 1 || (items.flute > 0 && canReachInvertedLightWorld()); }
+  // Inverted 2.0's flute arrives activated and its spots are in the Dark World,
+  // so holding it is enough (map.html fluteDW() says the same).
+  function activeFluteInverted() {
+    if ((window.trackerSettings || {}).inverted2 && items.flute > 0) return true;
+    return items.flute > 1 || (items.flute > 0 && canReachInvertedLightWorld());
+  }
 
   function pendantCheck(type) {
     var pendant_count = 0;
@@ -120,24 +125,17 @@
     'Desert Palace Entrance (North)': true,
     'Desert Palace Entrance (East)':  true,
     'Bush Covered House':             true,
+    'Potion Shop':                    true,   // ringed by bushes too (Chris, Oct 2026)
     'Kings Grave':                    true,
   };
 
   // Like hasFoundLightWorldEntrance() but only counts entrances the player
   // can freely walk away from as a bunny — excludes enclosed entrances.
-  // Also recognises label text that identifies a LW pass-through building:
-  //   "Sanc" = Sanctuary, "Link" = Link's House, "Mount" = Mountain cave
-  // A DW entrance labelled with one of these lets the player walk out to the LW.
-  var _LW_PASSTHROUGH_LABELS = ['sanc', 'link', 'mount'];
-  function _isLwPassthroughLabel(text) {
-    if (!text) return false;
-    var lv = text.toLowerCase().trim();
-    for (var _li = 0; _li < _LW_PASSTHROUGH_LABELS.length; _li++) {
-      if (lv.indexOf(_LW_PASSTHROUGH_LABELS[_li]) === 0) return true;
-    }
-    return false;
-  }
-
+  // A start label (Link/Sanc/Mount) counts only by where it sits: on a Light
+  // World entrance it's caught by LW_ENTRANCES like any label; on a Dark World
+  // one it's the Dark World. It used to count anywhere as a way out into the
+  // Light World — Sanc on Dark Sanctuary Hint opened it with nothing placed
+  // there (Chris, Oct 2026).
   function hasFoundOpenLightWorldEntrance() {
     var conns = window._entConnections;
     if (conns && conns.length) {
@@ -151,8 +149,6 @@
       var names = Object.keys(labels);
       for (var j = 0; j < names.length; j++) {
         if (LW_ENTRANCES[names[j]] && !LW_ENCLOSED_ENTRANCES[names[j]]) return true;
-        // Label text identifies a LW pass-through building on any entrance
-        if (_isLwPassthroughLabel(labels[names[j]])) return true;
       }
     }
     return false;
@@ -306,12 +302,14 @@
     if (items.agahnim) return true;
     // Open LW connector (freely walkable, not rock-enclosed) + moonpearl = LW access
     if (hasFoundOpenLightWorldEntrance()) return true;
-    // Bush Covered House: moonpearl (checked above) lets you become human and cut the bushes
-    var _bchConns = window._entConnections;
-    if (_bchConns && _bchConns.length) {
-      for (var _bchI = 0; _bchI < _bchConns.length; _bchI++) {
-        if (_bchConns[_bchI][0] === 'Bush Covered House' ||
-            _bchConns[_bchI][1] === 'Bush Covered House') return true;
+    // Bush Covered House / Potion Shop: ringed by bushes a bunny can't lift —
+    // the moonpearl (checked above) makes you human to clear them.
+    var _bushConns = window._entConnections || [], _bushLabels = window._entLabels || {};
+    var _bushed = ['Bush Covered House', 'Potion Shop'];
+    for (var _bI = 0; _bI < _bushed.length; _bI++) {
+      if (_bushLabels[_bushed[_bI]]) return true;
+      for (var _bJ = 0; _bJ < _bushConns.length; _bJ++) {
+        if (_bushConns[_bJ][0] === _bushed[_bI] || _bushConns[_bJ][1] === _bushed[_bI]) return true;
       }
     }
     // DP North is rock-enclosed — needs moonpearl (checked above) + at least Power Glove
@@ -337,9 +335,26 @@
     return false;
   }
 
-  // In inverted, the Dark World is the "home" world — always accessible
-  function canReachInvertedWestDarkWorld()     { return true; }
-  function canReachInvertedSouthDarkWorld()    { return true; }
+  // In inverted, the Dark World is the "home" world — always accessible.
+  // Except Inverted 2.0 with entrances shuffled: the start can be anywhere, so
+  // nothing is assumed — a region is home only once a label or connector puts
+  // you there (Chris, Oct 2026).
+  function inv2Shuffled() {
+    var s = window.trackerSettings || {};
+    return !!(s.inverted2 && s.entranceShuffle);
+  }
+  // Has anything been placed yet? Labels count only on real entrance markers.
+  function anchored() {
+    if ((window._entConnections || []).length) return true;
+    var labels = window._entLabels || {}, logic = window.logic_entrances || {};
+    return Object.keys(labels).some(function (n) { return !!logic[n]; });
+  }
+  function foundHome(open) {
+    var f = window._entSyntheticFoundRegions || [];
+    return f.indexOf(open) !== -1 || f.indexOf('Inverted ' + open) !== -1;
+  }
+  function canReachInvertedWestDarkWorld()  { return !inv2Shuffled() || foundHome('West Dark World')  || activeFluteInverted(); }
+  function canReachInvertedSouthDarkWorld() { return !inv2Shuffled() || foundHome('South Dark World') || activeFluteInverted(); }
 
   function canReachInvertedEastDarkWorld() {
     if (activeFluteInverted()) return true;
@@ -599,7 +614,12 @@
         var _atConns = (window._entConnections && window._entConnections.length)
           ? window._entConnections
           : (function() { try { return JSON.parse(localStorage.getItem('ent-connections') || '[]'); } catch(e) { return []; } })();
+        // ...or a label on a balcony door (HC W / HC E) — the map already counts
+        // that as reaching the balcony (Chris, Oct 2026: HC W on Hyrule Castle
+        // West with pearl + Master Sword showed this door red).
+        var _atFound = window._entSyntheticFoundRegions || [];
         var _atBalcony = _atConns.some(function(c) { return _atHCNames[c[0]] || _atHCNames[c[1]]; }) ||
+          _atFound.indexOf('Inverted Hyrule Castle Balcony') !== -1 ||
           (items.agahnim && items.mirror);
         return _atBalcony ? "available" : "unavailable";
       }
@@ -613,11 +633,24 @@
     // Open: always available; Inverted: canReach|Inverted Light World Bunny
 
     var def = logic[name];
+    // Inverted 2.0 + entrance shuffle: nothing is reachable until something is
+    // labelled or connected — the start could be any entrance.
+    // (The flute is the exception — in 2.0 it reaches the Dark World from anywhere.)
+    if (inv2Shuffled() && !anchored() && !activeFluteInverted()) return "unavailable";
     if (!def) return "available";
 
     // Pick Inverted or Open requirements based on current game mode
     var isInverted = !!(window.trackerSettings && window.trackerSettings.inverted);
     var requirements = isInverted ? (def.Inverted || def.Open) : (def.Open || def.Inverted);
+    // Same case: a rule that names no region took the home world for granted.
+    // Ask for the entrance's own region instead.
+    if (inv2Shuffled() && JSON.stringify(requirements || {}).indexOf('canReach|') === -1) {
+      var reg = (window._entEntranceRegion || {})[name];
+      if (reg) {
+        var invReg = (window._entOpenToInverted || {})[reg] || reg;
+        if (!stateOfEntrance('canReach|' + invReg)) return "unavailable";
+      }
+    }
     if (!requirements) return "available";
     return stateOfAllEntrance(requirements) ? "available" : "unavailable";
   }
@@ -626,5 +659,13 @@
     checkEntranceAvailability: checkEntranceAvailability,
     hasFoundLightWorldEntrance: hasFoundLightWorldEntrance,
     isKnownDWEntrance: function(name) { return !!DW_ENTRANCES[name]; },
+    // Inverted 2.0 + entrance shuffle with nothing placed yet: the start is unknown.
+    startUnknown: function() { return inv2Shuffled() && !anchored(); },
+    // One region's reachability, for checks that stand in a region rather
+    // than behind an entrance.
+    canReachRegion: function(region, itemsObj) {
+      items = itemsObj || {};
+      return !!stateOfEntrance('canReach|' + region);
+    },
   };
 })(window);
