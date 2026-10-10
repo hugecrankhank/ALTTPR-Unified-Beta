@@ -1,12 +1,11 @@
 {
  "edition": "lite",
- "version": "ec3cf5d7c04c",
+ "version": "422c1ff303ec",
  "cache": "alttpr-unified-lite-v1",
  "files": [
   "./",
   "bridge/sni-bridge.js",
   "bridge/sni-shim.js",
-  "checklist-sheet.js",
   "icons/apple-touch-icon.png",
   "icons/favicon-32.png",
   "icons/icon-192.png",
@@ -16,6 +15,7 @@
   "manifest.webmanifest",
   "offline.js",
   "phone.js",
+  "sheet.js",
   "sw.js",
   "tablet.js",
   "tracker/.github/FUNDING.yml",
