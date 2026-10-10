@@ -3,6 +3,7 @@
 import { md5 } from './md5.js';
 import { parseSprite, applySprite, drawHead, drawSheet } from './sprite.js';
 import { MsuPlayer, trackNumber } from './msu.js';
+import { listZip, zipEntryBlob } from './zip.js';
 import { buildLink, readLink, clearLink, codeForSeed, codeFromRom, codeNames, renderCode, PARAMS } from './share.js';
 import { openLibrary, labelOf, isPlainLink, loadList } from './library.js';
 import { createCollection, keyOf, pickFrom } from './collection.js';
@@ -999,9 +1000,38 @@ function packFolderFiles(fileList) {
   return best;
 }
 
+// A pack as one .zip: songs are unpacked from it only when they play.
+function zipTracks(zip, list) {
+  return new Map(list.map(([n, ent]) => [n, () => zipEntryBlob(zip, ent)]));
+}
+
+async function loadMsuZip(zip) {
+  status(`Opening ${zip.name}…`);
+  const pcm = (await listZip(zip))
+    .map((ent) => ({ ent, name: ent.path.split('/').pop(), webkitRelativePath: ent.path }))
+    .filter((f) => !/(^|\/)__MACOSX\//.test(f.ent.path) && !f.name.startsWith('._') && trackNumber(f.name) !== null);
+  const files = packFolderFiles(pcm);
+  if (!files.length) throw new Error('No MSU-1 .pcm files in that .zip (they should be named like pack-1.pcm, pack-2.pcm, …).');
+  const list = files.map((f) => [trackNumber(f.name), f.ent]);
+  const name = packName(files);
+  msu.setTracks(zipTracks(zip, list));
+  showMsu(name);
+  msu.start();
+  status(`Saving ${name} in this browser…`);
+  try {
+    await kvSet('msu-pack', { name, zip, entries: list });
+    status(`MSU-1 pack ready: ${name}. It plays on seeds you generate from now on.`, 'ok');
+  } catch (e) {
+    console.warn('[msu] could not store pack', e);
+    status(`MSU-1 pack ready for this visit: ${name}. It was too big to save in the browser, so choose it again next time.`, 'ok');
+  }
+}
+
 async function loadMsuPack(fileList) {
+  const zip = [...fileList].find((f) => /\.zip$/i.test(f.name));
+  if (zip) return loadMsuZip(zip);
   const files = [...fileList].filter((f) => trackNumber(f.name) !== null);
-  if (!files.length) throw new Error('Choose the .pcm files from an MSU-1 pack (named like pack-1.pcm, pack-2.pcm, …).');
+  if (!files.length) throw new Error('Choose the .pcm files from an MSU-1 pack (named like pack-1.pcm, pack-2.pcm, …), or the pack as one .zip.');
   const tracks = new Map(files.map((f) => [trackNumber(f.name), f]));
   const name = packName(files);
   msu.setTracks(tracks);
@@ -1053,7 +1083,11 @@ function initMsu() {
   // iOS only starts audio from a tap, so (re)unlock on any tap while a pack is loaded
   ['touchend', 'click', 'keydown'].forEach((t) => document.addEventListener(t, () => { if (msu.count) msu.unlock(); }, true));
   kvGet('msu-pack').then((p) => {
-    if (p && p.tracks && p.tracks.length) {
+    if (p && p.zip && p.entries && p.entries.length) {
+      msu.setTracks(zipTracks(p.zip, p.entries));
+      showMsu(p.name);
+      msu.start();
+    } else if (p && p.tracks && p.tracks.length) {
       msu.setTracks(new Map(p.tracks));
       showMsu(p.name);
       msu.start();

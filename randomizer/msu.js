@@ -231,7 +231,9 @@ export class MsuPlayer {
   // the main thread and the emulator doesn't stall when the song changes.
   async decode(t) {
     if (this.buffers.has(t)) return this.buffers.get(t);
-    const blob = this.tracks.get(t);
+    // a Blob, or (zip packs) a function that unpacks the song on demand
+    const v = this.tracks.get(t);
+    const blob = typeof v === 'function' ? await v() : v;
     const head = new Uint8Array(await blob.slice(0, 8).arrayBuffer());
     if (head.length < 8 || String.fromCharCode(...head.subarray(0, 4)) !== 'MSU1') {
       throw new Error('not an MSU-1 .pcm file');
