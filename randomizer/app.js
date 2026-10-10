@@ -782,8 +782,6 @@ async function paintStar(sp) {
     st.setAttribute('aria-pressed', on ? 'true' : 'false');
     st.title = on ? 'Remove from favourites' : 'Star this sprite';
   }
-  const fb = $('sprite-fav-btn');
-  if (fb) fb.hidden = !coll.favCount();
 }
 
 // ── changing the sprite during a game ────────────────────────────────────────
@@ -891,11 +889,10 @@ function buildSpriteButton() {
     '<span class="sb-lbl">Sprite</span>';
   b.addEventListener('click', () => randomSprite('all'));
   split.parentNode.insertBefore(b, split.nextSibling);
-  // 🎲★ beside it: a random favourite (shown once you've starred something)
+  // 🎲★ beside it: a random favourite (always shown; with none starred it says how)
   const f = document.createElement('button');
   f.id = 'sprite-fav-btn';
   f.type = 'button';
-  f.hidden = true;
   f.setAttribute('aria-label', 'Random favourite sprite');
   f.title = 'A random sprite from your favourites';
   f.innerHTML = '<span class="sfb-star" aria-hidden="true">\u2605</span>' +
