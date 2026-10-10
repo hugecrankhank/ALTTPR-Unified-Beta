@@ -107,7 +107,7 @@ export class MsuPlayer {
     // pause with the game (menu open, emulator paused, tab hidden)
     const frame = this.ram(0x1A)[0];
     if (frame !== this.lastFrame) { this.lastFrame = frame; this.lastFrameAt = now; }
-    const paused = now - this.lastFrameAt > 200;
+    const paused = now - this.lastFrameAt > 600;   // not just a slow screen load
     if (this.ctx) {
       if (paused && this.ctx.state === 'running') this.ctx.suspend().catch(() => {});
       if (!paused && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
@@ -226,25 +226,35 @@ export class MsuPlayer {
     this.gain.gain.setTargetAtTime(this.level * master, this.ctx.currentTime, 0.02);
   }
 
+  // Hand the PCM to the browser's own decoder as a WAV (MSU-1 .pcm is 16-bit
+  // stereo 44.1 kHz little-endian, exactly WAV's data), so decoding runs off
+  // the main thread and the emulator doesn't stall when the song changes.
   async decode(t) {
     if (this.buffers.has(t)) return this.buffers.get(t);
-    const bytes = new Uint8Array(await this.tracks.get(t).arrayBuffer());
-    if (bytes.length < 8 || String.fromCharCode(...bytes.subarray(0, 4)) !== 'MSU1') {
+    const blob = this.tracks.get(t);
+    const head = new Uint8Array(await blob.slice(0, 8).arrayBuffer());
+    if (head.length < 8 || String.fromCharCode(...head.subarray(0, 4)) !== 'MSU1') {
       throw new Error('not an MSU-1 .pcm file');
     }
-    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    const loop = dv.getUint32(4, true);
-    const frames = Math.floor((bytes.length - 8) / 4);
-    const audio = this.ctx.createBuffer(2, Math.max(1, frames), RATE);
-    const L = audio.getChannelData(0), R = audio.getChannelData(1);
-    for (let i = 0, o = 8; i < frames; i++, o += 4) {
-      L[i] = dv.getInt16(o, true) / 32768;
-      R[i] = dv.getInt16(o + 2, true) / 32768;
-    }
+    const loop = new DataView(head.buffer).getUint32(4, true);
+    const dataLen = Math.max(4, (blob.size - 8) & ~3);
+    const frames = dataLen / 4;
+    const wav = new DataView(new ArrayBuffer(44));
+    const str = (o, x) => { for (let i = 0; i < 4; i++) wav.setUint8(o + i, x.charCodeAt(i)); };
+    str(0, 'RIFF'); wav.setUint32(4, 36 + dataLen, true); str(8, 'WAVE');
+    str(12, 'fmt '); wav.setUint32(16, 16, true); wav.setUint16(20, 1, true); wav.setUint16(22, 2, true);
+    wav.setUint32(24, RATE, true); wav.setUint32(28, RATE * 4, true); wav.setUint16(32, 4, true); wav.setUint16(34, 16, true);
+    str(36, 'data'); wav.setUint32(40, dataLen, true);
+    const bytes = await new Blob([wav.buffer, blob.slice(8, 8 + dataLen)]).arrayBuffer();
+    const audio = await new Promise((ok, bad) => {
+      const p = this.ctx.decodeAudioData(bytes, ok, bad);
+      if (p && p.catch) p.catch(() => {});
+    });
     const entry = { audio, loop: loop < frames ? loop : 0 };
     // keep only a couple of decoded songs (they're large)
     if (this.buffers.size >= 2) this.buffers.delete(this.buffers.keys().next().value);
     this.buffers.set(t, entry);
     return entry;
   }
+
 }
