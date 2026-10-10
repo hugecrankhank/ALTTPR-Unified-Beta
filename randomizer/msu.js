@@ -76,6 +76,9 @@ export class MsuPlayer {
     this.resume = null;
   }
 
+  // the ROM's music flag just changed mid-song: play the song the game is on
+  restart() { this.stopSource(); this.playing = 0; this.lastCmd = 0; }
+
   stopSource() {
     if (this.source) {
       try { this.source.onended = null; this.source.stop(); } catch (e) {}

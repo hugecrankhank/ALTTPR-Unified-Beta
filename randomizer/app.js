@@ -976,8 +976,9 @@ function packName(files) {
 }
 
 function showMsu(name) {
-  $('r-msu-name').textContent = msu.count ? `${name} (${msu.count} tracks)` : "Game's own music";
+  $('r-msu-name').textContent = msu.count ? `${name} (${msu.count} tracks)` : 'MSU Off';
   $('r-msu-clear').hidden = !msu.count;
+  updateMusicButton(name);
 }
 
 // A chosen folder: use the folder that holds the pack's .pcm files, ignoring
@@ -1013,18 +1014,7 @@ async function loadMsuZip(zip) {
   const files = packFolderFiles(pcm);
   if (!files.length) throw new Error('No MSU-1 .pcm files in that .zip (they should be named like pack-1.pcm, pack-2.pcm, …).');
   const list = files.map((f) => [trackNumber(f.name), f.ent]);
-  const name = packName(files);
-  msu.setTracks(zipTracks(zip, list));
-  showMsu(name);
-  msu.start();
-  status(`Saving ${name} in this browser…`);
-  try {
-    await kvSet('msu-pack', { name, zip, entries: list });
-    status(`MSU-1 pack ready: ${name}. It plays on seeds you generate from now on.`, 'ok');
-  } catch (e) {
-    console.warn('[msu] could not store pack', e);
-    status(`MSU-1 pack ready for this visit: ${name}. It was too big to save in the browser, so choose it again next time.`, 'ok');
-  }
+  return addPack({ name: packName(files), zip, entries: list }, list.length, zip.size);
 }
 
 async function loadMsuPack(fileList) {
@@ -1033,18 +1023,162 @@ async function loadMsuPack(fileList) {
   const files = [...fileList].filter((f) => trackNumber(f.name) !== null);
   if (!files.length) throw new Error('Choose the .pcm files from an MSU-1 pack (named like pack-1.pcm, pack-2.pcm, …), or the pack as one .zip.');
   const tracks = new Map(files.map((f) => [trackNumber(f.name), f]));
-  const name = packName(files);
-  msu.setTracks(tracks);
-  showMsu(name);
+  const size = files.reduce((n, f) => n + f.size, 0);
+  return addPack({ name: packName(files), tracks: [...tracks] }, tracks.size, size);
+}
+
+// ── My packs: every pack you add is kept in the browser, ☆/★ favourites ─────
+// 'msu-packs' lists them ({ id, name, count, size, fav }); each pack's songs
+// are in 'msu-pack:<id>' (the .zip, or its .pcm files). 'msu-current' is the
+// one playing. Packs are big (100-500 MB), so the menu shows the space used
+// and ✕ removes one.
+let packs = [];
+let currentPack = null;      // id, or null: the game's own music
+let visitPack = null;        // a pack too big to keep: { name, count }, this visit only
+
+async function loadPacks() {
+  packs = (await kvGet('msu-packs').catch(() => null)) || [];
+  currentPack = (await kvGet('msu-current').catch(() => null)) || null;
+  // the single pack older versions kept
+  const old = await kvGet('msu-pack').catch(() => null);
+  if (old && ((old.zip && old.entries && old.entries.length) || (old.tracks && old.tracks.length))) {
+    const id = 'p' + Date.now().toString(36);
+    const count = old.zip ? old.entries.length : old.tracks.length;
+    const size = old.zip ? old.zip.size : old.tracks.reduce((n, [, f]) => n + f.size, 0);
+    try {
+      await kvSet('msu-pack:' + id, old);
+      packs.push({ id, name: old.name, count, size, fav: false });
+      await kvSet('msu-packs', packs);
+      currentPack = id;
+      await kvSet('msu-current', id);
+      await kvDel('msu-pack');
+    } catch (e) { console.warn('[msu] could not move the saved pack', e); }
+  }
+  if (currentPack && !packs.some((x) => x.id === currentPack)) currentPack = null;
+}
+
+function playPackData(p) {
+  if (p.zip) msu.setTracks(zipTracks(p.zip, p.entries));
+  else msu.setTracks(new Map(p.tracks.map(([n, f]) => [n, f])));
+  showMsu(p.name);
   msu.start();
-  status(`Saving ${name} in this browser…`);
+}
+
+async function addPack(data, count, size) {
+  msu.unlock();
+  playPackData(data);
+  // the same pack again: use the copy already kept
+  const same = packs.find((x) => x.name === data.name && x.count === count && x.size === size);
+  if (same) {
+    visitPack = null;
+    await setCurrent(same.id);
+    status(`MSU-1 pack: ${data.name} (already in My packs). ${musicNote(await liveMusic(true).catch(() => null))}`, 'ok');
+    return;
+  }
+  status(`Saving ${data.name} in this browser…`);
+  const id = 'p' + Date.now().toString(36);
+  const keep = data.zip ? data : { name: data.name, tracks: data.tracks.map(([n, f]) => [n, new Blob([f], { type: 'application/octet-stream' })]) };
+  let saved = false;
   try {
-    await kvSet('msu-pack', { name, tracks: [...tracks].map(([n, f]) => [n, new Blob([f], { type: 'application/octet-stream' })]) });
-    status(`MSU-1 pack ready: ${name}. It plays on seeds you generate from now on.`, 'ok');
+    try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) {}
+    await kvSet('msu-pack:' + id, keep);
+    packs.push({ id, name: data.name, count, size, fav: false });
+    await kvSet('msu-packs', packs);
+    saved = true;
   } catch (e) {
     console.warn('[msu] could not store pack', e);
-    status(`MSU-1 pack ready for this visit: ${name}. It was too big to save in the browser, so choose it again next time.`, 'ok');
+    kvDel('msu-pack:' + id);
+    packs = packs.filter((x) => x.id !== id);
   }
+  const live = musicNote(await liveMusic(true).catch(() => null));
+  if (saved) {
+    visitPack = null;
+    await setCurrent(id);
+    status(`MSU-1 pack ready: ${data.name}, kept in My packs (♪). ${live}`, 'ok');
+  } else {
+    visitPack = { name: data.name, count };
+    await setCurrent(null, true);
+    status(`MSU-1 pack ready for this visit: ${data.name}. The browser is out of room to keep it; remove a pack in ♪ to make space. ${live}`, 'ok');
+  }
+  renderMusicMenu();
+}
+
+async function setCurrent(id, keepPlaying) {
+  currentPack = id;
+  if (id) await kvSet('msu-current', id).catch(() => {});
+  else await kvDel('msu-current');
+  if (!id && !keepPlaying) visitPack = null;
+}
+
+async function usePack(id) {
+  const meta = packs.find((x) => x.id === id);
+  if (!meta) return;
+  msu.unlock();
+  const data = await kvGet('msu-pack:' + id).catch(() => null);
+  if (!data) throw new Error(`${meta.name} isn't in this browser any more. Remove it and add it again.`);
+  playPackData(data);
+  visitPack = null;
+  await setCurrent(id);
+  status(`MSU-1 pack: ${meta.name}. ${musicNote(await liveMusic(true).catch(() => null))}`, 'ok');
+  renderMusicMenu();
+}
+
+async function musicOff() {
+  msu.setTracks(new Map());
+  showMsu('');
+  await setCurrent(null);
+  const live = await liveMusic(false).catch(() => null);
+  status(live === 'now' ? "MSU-1 off. The game's own music is back, here and on seeds after." :
+    "MSU-1 off. Seeds you generate from now on use the game's own music.", 'ok');
+  renderMusicMenu();
+}
+
+async function toggleFavPack(id) {
+  const meta = packs.find((x) => x.id === id);
+  if (!meta) return;
+  meta.fav = !meta.fav;
+  await kvSet('msu-packs', packs).catch(() => {});
+  renderMusicMenu();
+}
+
+async function removePack(id) {
+  const meta = packs.find((x) => x.id === id);
+  if (!meta || !confirm(`Remove ${meta.name} from My packs? (Frees ${fmtSize(meta.size)}.)`)) return;
+  packs = packs.filter((x) => x.id !== id);
+  await kvSet('msu-packs', packs).catch(() => {});
+  await kvDel('msu-pack:' + id);
+  if (currentPack === id) {
+    // keeps playing this visit (the songs are still open), not after
+    currentPack = null;
+    visitPack = { name: meta.name, count: meta.count };
+    await kvDel('msu-current');
+  }
+  status(`Removed ${meta.name} from My packs.`, 'ok');
+  renderMusicMenu();
+}
+
+// 🎲 a random favourite (never the one playing when there's another)
+async function rollPack() {
+  const favs = packs.filter((x) => x.fav);
+  if (!favs.length) {
+    const msg = packs.length ? 'No favourite packs yet. Tap ☆ beside the packs you like in ♪.' :
+      'No packs yet. Add one in ♪ first, then tap ☆ to make it a favourite.';
+    status(msg, 'bad');
+    if (!document.body.classList.contains('rando-open')) alert(msg);
+    return;
+  }
+  const others = favs.length > 1 ? favs.filter((x) => x.id !== currentPack) : favs;
+  const pick = others[Math.floor(Math.random() * others.length)];
+  const b = $('music-roll-btn');
+  if (b) { if (b.disabled) return; b.disabled = true; b.classList.add('busy'); }
+  try { await usePack(pick.id); }
+  catch (e) { status(String(e.message || e), 'bad'); }
+  finally { if (b) { b.disabled = false; b.classList.remove('busy'); } }
+}
+
+function fmtSize(n) {
+  if (!n) return '';
+  return n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : Math.round(n / 1e6) + ' MB';
 }
 
 // Called by "Load ROM…" for seed files: turn the game's music off when a pack
@@ -1061,6 +1195,252 @@ function prepareLoadedRom(bytes) {
   return rom;
 }
 
+// ── switching the music during a game ───────────────────────────────────────
+// The pack only plays when the running ROM has its own music off (0x18021A).
+// A seed started before the pack was chosen (Resume, an older seed, Load ROM)
+// has it on, so flip that flag in the running ROM, like the sprite change does.
+// The game checks the flag on every song request, so we then ask it for the
+// current song again: it mutes (pack on) or restarts (pack off) the SPC music
+// right away instead of at the next door. The changed ROM is kept with the game.
+const NO_BGM = 0x18021A;
+let musicChecked = null;   // the game already switched to the pack
+async function liveMusic(on) {
+  const app = window.UnifiedApp, br = window.AlttpBridge;
+  const run = app && app.runningRom && app.runningRom();
+  if (!run || !br || !br.patchRom || !br.ready || !br.ready()) return null;   // no game running
+  const hdr = run.bytes.length % 1024 === 512 ? 512 : 0;
+  const rom = run.bytes.slice(hdr);
+  const t = String.fromCharCode(rom[0x7FC0], rom[0x7FC1]);
+  if (rom.length < 0x200000 || (t !== 'VT' && t !== 'GK')) return 'not-rando';
+  const want = on ? 1 : 0;
+  if (rom[NO_BGM] !== want) {
+    rom[NO_BGM] = want;
+    if (!br.patchRom(rom)) return false;
+    const full = new Uint8Array(hdr + rom.length);
+    full.set(run.bytes.subarray(0, hdr)); full.set(rom, hdr);
+    app.setRunningRom(full);
+  }
+  if (on) { musicChecked = run; msu.unlock(); msu.start(); msu.restart(); }
+  // ask for the song that's playing again ($012C request; clearing $0133,
+  // the current one, so the game doesn't skip it as already playing)
+  const song = rd(0x0130);
+  if (song >= 1 && song <= 0x3F && rd(0x012C) === 0) {
+    br.writeWram(WRAM + 0x0133, new Uint8Array([0]));
+    br.writeWram(WRAM + 0x012C, new Uint8Array([song]));
+  }
+  return 'now';
+}
+
+function musicNote(live) {
+  if (live === 'now') return 'Playing in this game now, and on every seed after.';
+  if (live === 'not-rando') return "This game isn't a randomizer seed, so it keeps its own music; the pack plays on seeds.";
+  if (live === false) return "Couldn't switch this game's music; the pack plays on the next seed.";
+  return 'It plays on seeds you start from now on.';
+}
+
+// A pack is set but the game running still has its own music on (started
+// before the pack was chosen, or resumed): switch it over once per game.
+function checkRunningMusic() {
+  const app = window.UnifiedApp, br = window.AlttpBridge;
+  const run = app && app.runningRom && app.runningRom();
+  if (!msu.count || !run || run === musicChecked || !br || !br.ready || !br.ready()) return;
+  const st = br.status();
+  if (!st.running || st.mode !== 'live') return;
+  musicChecked = run;
+  let flag = 1;
+  try { flag = br.read(NO_BGM, 1)[0]; } catch (e) {}
+  if (flag === 0) liveMusic(true).catch(() => {});
+}
+
+// ── header button: ♪ My packs, during a game too ────────────────────────────
+// Tap: a menu with 🎲 a random favourite, your packs (tap one to play it, ☆/★,
+// ✕ to remove), + Add pack (the folder picker on computers; the file picker,
+// a .zip or the .pcm files, on iPhone/iPad), and the game's own music.
+function buildMusicButton() {
+  if ($('music-btn')) return;
+  const after = $('sprite-fav-btn') || $('sprite-btn');
+  if (!after) return;
+  const b = document.createElement('button');
+  b.id = 'music-btn';
+  b.type = 'button';
+  b.setAttribute('aria-label', 'MSU-1 music packs');
+  b.setAttribute('aria-haspopup', 'menu');
+  b.setAttribute('aria-expanded', 'false');
+  b.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5.5l11-2V16"/>' +
+    '<ellipse cx="6.5" cy="18" rx="2.6" ry="2.1" fill="currentColor"/><ellipse cx="17.5" cy="16" rx="2.6" ry="2.1" fill="currentColor"/></svg>' +
+    '<span class="mb-lbl">Music</span>';
+  b.addEventListener('click', () => musicMenu($('music-menu').hidden));
+  after.parentNode.insertBefore(b, after.nextSibling);
+  // 🎲♪ beside it: a random favourite pack in one tap
+  const r = document.createElement('button');
+  r.id = 'music-roll-btn';
+  r.type = 'button';
+  r.setAttribute('aria-label', 'Random favourite MSU-1 pack');
+  r.title = 'A random MSU-1 pack from your favourites (switches this game too)';
+  r.innerHTML = '<svg class="mr-note" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5.5l11-2V16"/>' +
+    '<ellipse cx="6.5" cy="18" rx="2.6" ry="2.1" fill="currentColor"/><ellipse cx="17.5" cy="16" rx="2.6" ry="2.1" fill="currentColor"/></svg>' +
+    '<svg class="sb-die" viewBox="0 0 12 12" aria-hidden="true"><rect x=".75" y=".75" width="10.5" height="10.5" rx="2.5"/>' +
+    '<circle cx="4" cy="4" r="1.1"/><circle cx="8" cy="8" r="1.1"/><circle cx="8" cy="4" r="1.1"/><circle cx="4" cy="8" r="1.1"/></svg>';
+  r.addEventListener('click', () => { msu.unlock(); rollPack(); });
+  b.parentNode.insertBefore(r, b.nextSibling);
+
+  const m = document.createElement('div');
+  m.id = 'music-menu';
+  m.setAttribute('role', 'menu');
+  m.hidden = true;
+  document.body.appendChild(m);
+  m.addEventListener('click', onMusicMenuClick);
+  document.addEventListener('pointerdown', (e) => {
+    if (!m.hidden && !e.target.closest('#music-menu, #music-btn')) musicMenu(false);
+  }, true);
+  window.addEventListener('blur', () => { if (!m.hidden) musicMenu(false); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !m.hidden) { musicMenu(false); b.focus(); } });
+  window.addEventListener('resize', () => { if (!m.hidden) placeMusicMenu(); });
+
+  const st = document.createElement('style');
+  st.textContent = [
+    '#music-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }',
+    '#music-btn svg { display: block; flex: none; }',
+    '#music-btn.on svg { color: var(--accent, #5fbf6f); }',
+    '#music-btn[aria-expanded=true] { border-color: var(--accent, #5fbf6f); }',
+    '#music-btn.busy svg { animation: sb-spin .6s linear infinite; }',
+    'body.phone #music-btn { min-width: 34px; min-height: 34px; padding: 0 6px; }',
+    'body.phone #music-btn .mb-lbl { display: none; }',
+    '#music-roll-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; min-width: 38px; }',
+    '#music-roll-btn .mr-note { display: block; color: #f5c542; }',
+    '#music-roll-btn .sb-die { position: absolute; right: 4px; bottom: 3px; width: 10px; height: 10px; }',
+    '#music-roll-btn .sb-die rect { fill: var(--bg, #111); stroke: currentColor; stroke-width: 1.3; }',
+    '#music-roll-btn .sb-die circle { fill: currentColor; }',
+    '#music-roll-btn.busy .mr-note, #music-btn.busy svg { animation: sb-spin .6s linear infinite; }',
+    'body.phone #music-roll-btn { min-width: 34px; min-height: 34px; padding: 0 5px; }',
+    // two more buttons on phones: tighten the header so ⚙ stays on its line
+    // the header's icon buttons get a little narrower so ⚙ stays on its line
+    'body.phone header:has(#music-roll-btn) { column-gap: 4px !important; }',
+    'body.phone header:has(#music-roll-btn) h1 { font-size: 13px; margin-right: 4px; }',
+    'body.phone header:has(#music-roll-btn) #reroll-btn, body.phone header:has(#music-roll-btn) #sprite-btn { min-width: 34px !important; padding: 0 4px !important; }',
+    'body.phone header:has(#music-roll-btn) #sprite-fav-btn, body.phone header:has(#music-roll-btn) #music-btn,' +
+    ' body.phone header:has(#music-roll-btn) #music-roll-btn { min-width: 32px !important; padding: 0 3px !important; }',
+    'body.phone header:has(#music-roll-btn) #phone-gear { min-width: 36px !important; padding: 0 4px !important; }',
+    // small phones (iPhone SE/mini): the title makes way for the buttons
+    '@media (max-width: 385px) { body.phone header:has(#music-roll-btn) h1 { display: none; } }',
+    '#music-menu { position: fixed; z-index: 80; width: min(360px, calc(100vw - 32px)); max-height: min(70vh, 520px); overflow-y: auto;',
+    '  -webkit-overflow-scrolling: touch; padding: 6px; display: flex; flex-direction: column; gap: 2px; background: var(--panel, #161b22);',
+    '  border: 1px solid var(--line, #2a313c); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.55); font-size: 14px; }',
+    '#music-menu[hidden] { display: none; }',
+    '#music-menu .mm-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 4px 8px 6px;',
+    '  color: var(--dim, #8b95a3); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }',
+    '#music-menu .mm-h span:last-child { text-transform: none; letter-spacing: 0; }',
+    '#music-menu button { border: 0; background: transparent; text-align: left; padding: 8px 10px; border-radius: 6px; min-height: 40px; }',
+    '#music-menu button:hover, #music-menu button:focus-visible { background: #1b2430; outline: none; }',
+    '#music-menu .mm-act { display: flex; align-items: center; gap: 10px; width: 100%; }',
+    '#music-menu .mm-act .ic { width: 20px; text-align: center; flex: none; }',
+    '#music-menu .mm-sep { height: 1px; background: var(--line, #2a313c); margin: 4px 2px; }',
+    '#music-menu .mm-row { display: flex; align-items: center; gap: 2px; }',
+    '#music-menu .mm-row .mm-pick { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; padding-left: 4px; }',
+    '#music-menu .mm-pick b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
+    '#music-menu .mm-pick small, #music-menu .mm-act small { color: var(--dim, #8b95a3); font-size: 11px; }',
+    '#music-menu .mm-cur b { color: var(--accent, #5fbf6f); }',
+    '#music-menu .mm-cur b::before { content: "\\266A  "; }',
+    '#music-menu .mm-star, #music-menu .mm-del { flex: none; width: 40px; padding: 0; text-align: center; font-size: 17px; color: var(--dim, #8b95a3); }',
+    '#music-menu .mm-star.on { color: #f5c542; }',
+    '#music-menu .mm-del { font-size: 14px; }',
+    '#music-menu .mm-empty { padding: 6px 10px; color: var(--dim, #8b95a3); font-size: 13px; }',
+  ].join('\n');
+  document.head.appendChild(st);
+  updateMusicButton(lastPackName);
+}
+
+let lastPackName = '';
+function updateMusicButton(name) {
+  lastPackName = name || '';
+  const b = $('music-btn');
+  if (!b) return;
+  b.classList.toggle('on', !!msu.count);
+  b.title = msu.count
+    ? `Music: ${lastPackName}. Tap for My packs: another pack, a random favourite, or MSU Off.`
+    : "Music: the game's own. Tap for My packs: add an MSU-1 pack, pick one, or roll a random favourite.";
+}
+
+function musicMenu(open) {
+  const m = $('music-menu'), b = $('music-btn');
+  if (!m || !b) return;
+  if (open) { renderMusicMenu(); placeMusicMenu(); }
+  m.hidden = !open;
+  b.setAttribute('aria-expanded', String(open));
+  if (open) { const f = m.querySelector('button'); if (f) f.focus({ preventScroll: true }); }
+}
+
+// under the button, kept on screen (16px from the edges)
+function placeMusicMenu() {
+  const m = $('music-menu'), b = $('music-btn');
+  const r = b.getBoundingClientRect();
+  const w = Math.min(360, window.innerWidth - 32);
+  m.style.top = Math.round(r.bottom + 6) + 'px';
+  m.style.left = Math.round(Math.max(16, Math.min(r.right - w, window.innerWidth - 16 - w))) + 'px';
+}
+
+function esc(t) { return String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+function renderMusicMenu() {
+  const m = $('music-menu');
+  if (!m) return;
+  const favs = packs.filter((x) => x.fav).length;
+  const total = packs.reduce((n, x) => n + (x.size || 0), 0);
+  const folders = !$('r-msu-dir-label').hidden;
+  let h = `<div class="mm-h"><span>MSU-1 music</span><span>${packs.length ? fmtSize(total) + ' kept' : ''}</span></div>`;
+  h += `<button type="button" role="menuitem" class="mm-act" data-act="roll"><span class="ic">\u{1F3B2}</span>` +
+    `<span>Random favourite<br><small>${favs ? `${favs} starred` : 'Tap ☆ on a pack to star it'}</small></span></button>`;
+  h += '<div class="mm-sep"></div>';
+  if (!packs.length && !visitPack) h += '<div class="mm-empty">No packs yet. Add one below and it stays here for next time.</div>';
+  if (visitPack && msu.count) {
+    h += `<div class="mm-row"><span class="mm-star" aria-hidden="true"></span><div class="mm-pick mm-cur"><b>${esc(visitPack.name)}</b>` +
+      `<small>${visitPack.count} tracks · this visit only</small></div></div>`;
+  }
+  // favourites first, then the rest, each by name
+  const sorted = packs.slice().sort((a, b) => (b.fav - a.fav) || a.name.localeCompare(b.name));
+  for (const x of sorted) {
+    const cur = x.id === currentPack && msu.count;
+    h += `<div class="mm-row">` +
+      `<button type="button" class="mm-star${x.fav ? ' on' : ''}" data-act="fav" data-id="${x.id}" aria-pressed="${x.fav}" ` +
+      `title="${x.fav ? 'Remove from favourites' : 'Add to favourites'}">${x.fav ? '★' : '☆'}</button>` +
+      `<button type="button" role="menuitemradio" aria-checked="${!!cur}" class="mm-pick${cur ? ' mm-cur' : ''}" data-act="use" data-id="${x.id}">` +
+      `<b>${esc(x.name)}</b><small>${x.count} tracks${x.size ? ' · ' + fmtSize(x.size) : ''}</small></button>` +
+      `<button type="button" class="mm-del" data-act="del" data-id="${x.id}" title="Remove from My packs" aria-label="Remove ${esc(x.name)}">✕</button></div>`;
+  }
+  h += '<div class="mm-sep"></div>';
+  h += `<button type="button" role="menuitem" class="mm-act" data-act="add"><span class="ic">+</span>` +
+    `<span>Add pack…<br><small>${folders ? "The pack's folder" : 'A .zip, or all its .pcm files'}</small></span></button>`;
+  if (folders) h += `<button type="button" role="menuitem" class="mm-act" data-act="add-files"><span class="ic">+</span>` +
+    `<span>Add from files…<br><small>A .zip, or all its .pcm files</small></span></button>`;
+  h += `<button type="button" role="menuitemradio" aria-checked="${!msu.count}" class="mm-act${msu.count ? '' : ' mm-cur'}" data-act="off">` +
+    `<span class="ic">${msu.count ? '' : '✓'}</span><span>MSU Off</span></button>`;
+  m.innerHTML = h;
+}
+
+async function onMusicMenuClick(e) {
+  const t = e.target.closest('button[data-act]');
+  if (!t) return;
+  const id = t.dataset.id;
+  msu.unlock();
+  try {
+    switch (t.dataset.act) {
+      case 'roll': musicMenu(false); await rollPack(); break;
+      case 'use': musicMenu(false); await usePack(id); break;
+      case 'fav': await toggleFavPack(id); break;
+      case 'del': await removePack(id); break;
+      case 'off': musicMenu(false); await musicOff(); break;
+      case 'add': musicMenu(false); ($('r-msu-dir-label').hidden ? $('r-msu-input') : $('r-msu-dir')).click(); break;
+      case 'add-files': musicMenu(false); $('r-msu-input').click(); break;
+    }
+  } catch (err) {
+    const msg = String(err.message || err);
+    status(msg, 'bad');
+    if (!document.body.classList.contains('rando-open')) alert(msg);
+  }
+}
+
 function initMsu() {
   const onPick = async (ev) => {
     const files = ev.target.files;
@@ -1074,25 +1454,16 @@ function initMsu() {
   // Folder… needs a browser whose picker can choose folders (not iPhone/iPad)
   const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   $('r-msu-dir-label').hidden = ios || !('webkitdirectory' in $('r-msu-dir'));
-  $('r-msu-clear').addEventListener('click', async () => {
-    msu.setTracks(new Map());
-    showMsu('');
-    await kvDel('msu-pack');
-    status('MSU-1 off. Seeds you generate from now on use the game\'s own music.', 'ok');
-  });
+  $('r-msu-clear').addEventListener('click', () => musicOff());
   // iOS only starts audio from a tap, so (re)unlock on any tap while a pack is loaded
   ['touchend', 'click', 'keydown'].forEach((t) => document.addEventListener(t, () => { if (msu.count) msu.unlock(); }, true));
-  kvGet('msu-pack').then((p) => {
-    if (p && p.zip && p.entries && p.entries.length) {
-      msu.setTracks(zipTracks(p.zip, p.entries));
-      showMsu(p.name);
-      msu.start();
-    } else if (p && p.tracks && p.tracks.length) {
-      msu.setTracks(new Map(p.tracks));
-      showMsu(p.name);
-      msu.start();
-    }
-  }).catch(() => {});
+  setInterval(checkRunningMusic, 1000);
+  loadPacks().then(async () => {
+    if (!currentPack) return;
+    const data = await kvGet('msu-pack:' + currentPack).catch(() => null);
+    if (data) playPackData(data);
+    else currentPack = null;
+  }).catch(() => {}).finally(renderMusicMenu);
 }
 
 export function init() {
@@ -1132,6 +1503,7 @@ export function init() {
   });
   coll.onChange(async () => paintStar(await kvGet('sprite').catch(() => null)));
   buildSpriteButton();
+  buildMusicButton();
   refreshSprite();
 
   window.UnifiedRando = { useIfBaseRom, prepareLoadedRom, noteRom };

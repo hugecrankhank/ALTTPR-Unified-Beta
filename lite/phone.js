@@ -303,7 +303,7 @@
     'body.phone #frames.map-only #items-wrap { display: none !important; }',
     'body.phone #frames.map-only #map-frame { display: block !important; flex: 1; height: auto !important; min-height: 0; }',
     // header: title, status dots and ⚙; everything else behind the ⚙
-    'body.phone:not(.phone-menu) header > :not(h1):not(#pad-status):not(#link-status):not(#phone-gear):not(#reroll-btn):not(#sprite-btn):not(#sprite-fav-btn):not(#phone-map-btn) { display: none !important; }',
+    'body.phone:not(.phone-menu) header > :not(h1):not(#pad-status):not(#link-status):not(#phone-gear):not(#reroll-btn):not(#sprite-btn):not(#sprite-fav-btn):not(#music-btn):not(#music-roll-btn):not(#phone-map-btn) { display: none !important; }',
     // 🎲 Reroll (and the Sprite button, Full) stay in the header next to ⚙
     'body.phone #reroll-btn { margin-left: auto; min-height: 34px; }',
     // narrower phones: 🎲 alone, so the header stays on one line
