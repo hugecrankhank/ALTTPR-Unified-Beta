@@ -84,6 +84,17 @@ function saveFields() {
 function loadFields() {
   let o = {};
   try { o = JSON.parse(localStorage.getItem('unified-kara-fields') || '{}'); } catch (e) {}
+  // Quickswap became On by default. Settings saved before that hold the old
+  // default (Off), so drop it once; choosing Off again after this is kept.
+  try {
+    if (!localStorage.getItem('unified-quickswap-default-on')) {
+      if ('r-quickswap' in o) {
+        delete o['r-quickswap'];
+        localStorage.setItem('unified-kara-fields', JSON.stringify(o));
+      }
+      localStorage.setItem('unified-quickswap-default-on', '1');
+    }
+  } catch (e) {}
   FIELDS.forEach((id) => {
     const el = $(id);
     if (el && o[id] != null && [...el.options].some((op) => op.value === o[id])) el.value = o[id];
